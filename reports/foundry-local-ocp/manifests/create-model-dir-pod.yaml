@@ -1,0 +1,30 @@
+# One-shot pod to create the model store directory on a specific node.
+# Replace <NODE_NAME> with your target node's hostname.
+# Requires privileged SCC on the default SA in the target namespace.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: create-model-dir
+  namespace: foundry-local-operator
+spec:
+  nodeName: <NODE_NAME>
+  containers:
+    - name: mkdir
+      image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+      command:
+        - sh
+        - -c
+        - |
+          mkdir -p /host/var/foundry-models
+          chmod 777 /host/var/foundry-models
+          echo "Directory created successfully"
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: host-root
+          mountPath: /host
+  volumes:
+    - name: host-root
+      hostPath:
+        path: /
+  restartPolicy: Never

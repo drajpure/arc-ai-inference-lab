@@ -1,0 +1,10 @@
+# Local StorageClass for OpenShift clusters without functional CSI drivers.
+# Use this when Azure Disk CSI is broken (e.g., missing cloud credentials).
+# NOT for production — hostPath is single-node only.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-storage
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain

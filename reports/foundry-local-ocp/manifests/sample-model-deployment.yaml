@@ -1,0 +1,25 @@
+# Sample ModelDeployment CR for Foundry Local on OpenShift.
+# Uses a small CPU-only catalog model suitable for validation testing.
+# Available catalog models can be discovered via:
+#   kubectl get configmap foundry-local-catalog -n foundry-local-operator -o jsonpath='{.data.catalog\.json}' | jq '.models[].alias'
+apiVersion: foundrylocal.azure.com/v1
+kind: ModelDeployment
+metadata:
+  name: qwen-coder-deploy
+  namespace: foundry-local-operator
+spec:
+  displayName: "Qwen2.5 Coder 0.5B (Validation)"
+  model:
+    catalog:
+      name: "qwen2.5-coder-0.5b"
+  workloadType: generative
+  compute: cpu
+  runtime: onnx-genai
+  replicas: 1
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "2Gi"
+    limits:
+      cpu: "4000m"
+      memory: "4Gi"

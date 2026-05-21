@@ -1,0 +1,24 @@
+# PersistentVolume for Foundry Local model store using local hostPath.
+# Replace <NODE_NAME> with your target node's hostname.
+# Requires the directory to exist on the node (see create-model-dir-pod.yaml).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: foundry-model-store-pv
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  local:
+    path: /var/foundry-models
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - <NODE_NAME>
