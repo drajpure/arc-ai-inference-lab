@@ -181,11 +181,9 @@ The scripts are grouped into three logical stages:
 
 ## Quick Start (Existing OCP Cluster)
 
-If you already have an OCP cluster, skip `00` and start from `01`:
+If you already have an OCP cluster, complete the [Before You Start](#before-you-start-authenticate--configure) steps once, then run scripts `01`–`08`:
 
 ```bash
-cp env.sh.example env.sh
-# Edit env.sh — set KUBECONFIG, ARC_RESOURCE_GROUP, ARC_CLUSTER_NAME, AZURE_REGION
 source env.sh
 
 ./scripts/01-prep-arc-azure.sh        # Azure-side prep
@@ -199,7 +197,7 @@ source env.sh
 ./scripts/08-e2e-tests.sh
 ```
 
-If Arc is **also** already connected, skip `01` and `02` as well.
+If Arc is **also** already connected, the idempotency guard in `02` will detect it and skip. You can also skip `01` — it's safe to omit if the Arc resource group and providers are already in place.
 
 ---
 
