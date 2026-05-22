@@ -161,7 +161,44 @@ reports/foundry-local-ocp/
 
 ---
 
-## Troubleshooting
+## Idempotency / Re-run Safety
+
+All scripts are safe to re-run. The table below summarizes how each script handles pre-existing state:
+
+| Script | Re-run behavior |
+|--------|-----------------|
+| `00-provision-ocp.sh` | RG: `az group create` is idempotent. Cluster: detects existing `${INSTALL_DIR}/metadata.json` + `auth/kubeconfig` and **skips** `openshift-install` with a clear message. To force a fresh install, run `openshift-install destroy cluster --dir=...` first. |
+| `01-prep-arc-azure.sh` | Fully idempotent: `az extension add --upgrade`, `az provider register`, and `az group create` all no-op when already in the desired state. |
+| `02-connect-arc.sh` | Namespace, SA, and SCC grants use `kubectl apply` / `oc adm policy add-scc-to-user` (idempotent). `az connectedk8s connect` is **guarded** — if the connectedCluster already exists, the call is skipped with its current status reported. |
+| `03-install-cert-manager.sh` | `helm upgrade --install` for both charts — re-runs reconcile to the same state. Includes explicit `kubectl wait` before installing trust-manager. |
+| `04-prep-namespace-scc.sh` | All `kubectl apply` and `oc adm policy` calls are idempotent. |
+| `05-install-foundry-operator.sh` | `helm upgrade --install` — re-runs reconcile. |
+| `06-post-install-scc.sh` | Skips SAs that don't exist yet (warns instead of failing). `kubectl rollout restart` is idempotent. |
+| `07-deploy-and-validate.sh` | `kubectl apply` for the ModelDeployment is idempotent. Port-forward is cleaned up at end. |
+| `08-e2e-tests.sh` | Read-only against the deployed model. Has a `trap` cleanup for port-forward. |
+| `09-configure-entra-auth.sh` | Looks up existing Entra app by name and reuses it. Scope, pre-auth client, and RBAC role assignments all check for existence before creating. |
+
+**Safe re-run patterns:**
+
+```bash
+# Re-run any single script — picks up from current state
+./scripts/03-install-cert-manager.sh   # → upgrades or installs as needed
+
+# Re-run from a specific point onward
+for s in scripts/03-* scripts/04-* scripts/05-*; do bash "$s"; done
+
+# Force a clean install (destructive — only for OCP infra)
+openshift-install destroy cluster --dir=./install-dir
+rm -rf ./install-dir
+./scripts/00-provision-ocp.sh
+```
+
+**One non-idempotent operation** that the scripts deliberately do NOT guard:
+`helm uninstall` — none of the scripts uninstall anything. Cleanup is left to the operator.
+
+---
+
+
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|

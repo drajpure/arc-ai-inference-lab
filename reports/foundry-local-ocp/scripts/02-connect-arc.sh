@@ -77,12 +77,21 @@ oc adm policy add-scc-to-user privileged -z azure-arc-kube-aad-proxy-sa -n azure
 
 echo ""
 echo "=== Connecting cluster to Azure Arc ==="
-az connectedk8s connect \
-  --name "${ARC_CLUSTER_NAME}" \
-  --resource-group "${ARC_RESOURCE_GROUP}" \
-  --location "${AZURE_REGION}" \
-  --distribution openshift \
-  --infrastructure azure
+# Idempotent: skip the connect call if the connectedCluster resource already exists.
+if az connectedk8s show -n "${ARC_CLUSTER_NAME}" -g "${ARC_RESOURCE_GROUP}" &>/dev/null; then
+  EXISTING_STATE=$(az connectedk8s show -n "${ARC_CLUSTER_NAME}" -g "${ARC_RESOURCE_GROUP}" \
+    --query "connectivityStatus" -o tsv 2>/dev/null || echo "Unknown")
+  echo "  Arc connectedCluster '${ARC_CLUSTER_NAME}' already exists (status=${EXISTING_STATE})."
+  echo "  Skipping 'az connectedk8s connect'. To re-onboard, run:"
+  echo "    az connectedk8s delete -n ${ARC_CLUSTER_NAME} -g ${ARC_RESOURCE_GROUP} --yes"
+else
+  az connectedk8s connect \
+    --name "${ARC_CLUSTER_NAME}" \
+    --resource-group "${ARC_RESOURCE_GROUP}" \
+    --location "${AZURE_REGION}" \
+    --distribution openshift \
+    --infrastructure azure
+fi
 
 echo ""
 echo "=== Verifying Arc connection ==="

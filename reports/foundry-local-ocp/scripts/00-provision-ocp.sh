@@ -58,8 +58,34 @@ echo ""
 # This RG must contain an Azure DNS zone matching ${BASE_DOMAIN} for the installer
 # to register cluster DNS records. The cluster's compute/network resources go into
 # a separate infra RG created by openshift-install.
-echo "=== Creating DNS resource group ==="
+# `az group create` is idempotent — succeeds if the RG already exists.
+echo "=== Creating DNS resource group (idempotent) ==="
 az group create --name "${OCP_RESOURCE_GROUP}" --location "${AZURE_REGION}" --output none
+
+# Idempotency: openshift-install will fail if the install dir already contains state.
+# Detect a prior run and skip cluster creation if a cluster is already provisioned.
+if [[ -f "${INSTALL_DIR}/metadata.json" ]]; then
+  echo "=== Existing install state detected at ${INSTALL_DIR}/metadata.json ==="
+  EXISTING_INFRA_ID=$(jq -r '.infraID // empty' "${INSTALL_DIR}/metadata.json" 2>/dev/null)
+  echo "  InfraID: ${EXISTING_INFRA_ID:-<unknown>}"
+  if [[ -f "${INSTALL_DIR}/auth/kubeconfig" ]]; then
+    echo "  Kubeconfig already exists: ${INSTALL_DIR}/auth/kubeconfig"
+    echo "  Skipping 'openshift-install create cluster' — cluster appears provisioned."
+    echo ""
+    echo "  To force a fresh install:"
+    echo "    openshift-install destroy cluster --dir=${INSTALL_DIR}"
+    echo "    rm -rf ${INSTALL_DIR}"
+    echo ""
+    echo "Next steps:"
+    echo "  export KUBECONFIG=${INSTALL_DIR}/auth/kubeconfig"
+    echo "  ./scripts/01-prep-arc-azure.sh"
+    exit 0
+  fi
+  echo "  Partial state found but no kubeconfig — refusing to overwrite." >&2
+  echo "  Inspect ${INSTALL_DIR} and either complete with 'openshift-install wait-for ...'" >&2
+  echo "  or remove the directory to start over." >&2
+  exit 1
+fi
 
 # Create install-config.yaml
 echo "=== Generating install-config.yaml ==="
