@@ -79,6 +79,19 @@ The scripts are grouped into three logical stages:
 │  07-deploy-and-validate.sh       Deploy model + test    │
 │  08-e2e-tests.sh                 Full E2E suite         │
 │  (~10 min total)                                        │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+┌─ Stage D (optional): Entra ID Authentication ───────────┐
+│  09-configure-entra-auth.sh                             │
+│    • Registers Entra app (single-tenant)                │
+│    • Exposes 'foundry_access' delegated scope           │
+│    • Forces v2.0 tokens (accessTokenAcceptedVersion=2)  │
+│    • Pre-authorizes Azure CLI as known client           │
+│    • Assigns user/group RBAC role on cluster            │
+│    • Grants Arc cluster identity 'Cognitive Services    │
+│      OpenAI User' (REQUIRED for RBAC checks to work)    │
+│    Then re-install operator with entraAuth.enabled=true │
+│    (~3 min)                                             │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -136,7 +149,8 @@ reports/foundry-local-ocp/
 │   ├── 05-install-foundry-operator.sh # [C] Helm install inference operator
 │   ├── 06-post-install-scc.sh         # [C] Phase 2 SCC grants
 │   ├── 07-deploy-and-validate.sh      # [C] Deploy model + single inference test
-│   └── 08-e2e-tests.sh                # [C] Full E2E test suite with report
+│   ├── 08-e2e-tests.sh                # [C] Full E2E test suite with report
+│   └── 09-configure-entra-auth.sh     # [D] (optional) Entra ID app + RBAC for token-based auth
 ├── manifests/
 │   ├── local-storage-class.yaml       # Workaround: local StorageClass
 │   ├── local-pv.yaml                  # Workaround: hostPath PV
@@ -165,6 +179,7 @@ reports/foundry-local-ocp/
 
 - [Deploy Foundry Local Arc Extension](https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/deploy-foundry-local-arc-extension)
 - [What is Foundry Local](https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/what-is-foundry-local-on-azure-local)
-- [Configure Authentication](https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/how-to-configure-authentication)
+- [Configure Authentication (Entra ID + RBAC)](https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/how-to-configure-authentication)
+- [Authentication and Authorization concepts](https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/concept-authentication-authorization)
 - [Azure Arc on OpenShift Troubleshooting](https://learn.microsoft.com/azure/azure-arc/kubernetes/troubleshooting#unable-to-connect-openshift-cluster-to-azure-arc)
 - [OpenShift Install on Azure (IPI)](https://docs.openshift.com/container-platform/latest/installing/installing_azure/ipi/installing-azure-default.html)
