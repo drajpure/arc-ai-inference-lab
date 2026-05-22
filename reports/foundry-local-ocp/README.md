@@ -129,7 +129,24 @@ The variables you must set depend on which stage you start at:
 
 ## Stage A — Provision OCP Cluster
 
-> Skip this stage if you already have an OpenShift cluster. Go to [Stage B](#stage-b--connect-cluster-to-azure-arc).
+> **Skip this stage if you already have an OpenShift cluster.** Go directly to [Stage B](#stage-b--connect-cluster-to-azure-arc).
+
+### Already have an OCP cluster? Quick check
+
+```bash
+# If any of these succeed, you can skip Stage A:
+oc whoami --show-server                              # Returns your OCP API URL
+oc get nodes                                         # Returns 3+ nodes
+kubectl --kubeconfig=/path/to/your/kubeconfig get nodes
+```
+
+If you have a kubeconfig but no `KUBECONFIG` var set yet, configure it now and skip ahead:
+
+```bash
+export KUBECONFIG="/path/to/your/kubeconfig.yaml"
+echo "export KUBECONFIG=\"$KUBECONFIG\"" >> env.sh
+oc get nodes                                          # Sanity check, then go to Stage B
+```
 
 ### Stage A Prerequisites
 
@@ -148,6 +165,8 @@ The variables you must set depend on which stage you start at:
 source env.sh
 ./scripts/00-provision-ocp.sh
 ```
+
+> **What happens if the cluster is already provisioned?** The script detects existing install state (`${INSTALL_DIR}/metadata.json` + `auth/kubeconfig`) and **automatically skips** `openshift-install create cluster` with a clear next-steps message. It will never overwrite a working cluster. To force a fresh install, run `openshift-install destroy cluster --dir=./install-dir` first, then delete `./install-dir`.
 
 This will:
 1. Create the **DNS resource group** (`${OCP_RESOURCE_GROUP}`, default `rg-ocp-dns`).
@@ -176,6 +195,24 @@ Two distinct RGs exist after this stage (and the next):
 
 ## Stage B — Connect Cluster to Azure Arc
 
+> **Already Arc-connected?** Both scripts in this stage are idempotent and will detect existing state:
+> - `01-prep-arc-azure.sh` is safe to re-run — all operations (RG create, provider register, extension add) no-op if already in the desired state.
+> - `02-connect-arc.sh` checks for an existing `connectedCluster` resource and **skips `az connectedk8s connect`** if it exists, printing the current connectivity status.
+
+### Already Arc-connected? Quick check
+
+```bash
+az connectedk8s list -g "$ARC_RESOURCE_GROUP" -o table
+
+# Or check a specific cluster:
+az connectedk8s show -n "$ARC_CLUSTER_NAME" -g "$ARC_RESOURCE_GROUP" \
+  --query "{name:name, status:connectivityStatus}" -o table
+```
+
+If `connectivityStatus` is `Connected`, you can either:
+- **Skip Stage B entirely** and go to [Stage C](#stage-c--install-foundry-local), or
+- Re-run the scripts anyway — they'll detect the existing state and complete in ~30 seconds without modifying anything.
+
 ### Stage B Prerequisites
 
 | Requirement | Check |
@@ -195,6 +232,14 @@ source env.sh
 ./scripts/02-connect-arc.sh       # Cluster-side prep + az connectedk8s connect
 ```
 
+> **Expected output if already connected:**
+> ```
+> Arc connectedCluster 'ocp-cluster-arc' already exists (status=Connected).
+> Skipping 'az connectedk8s connect'. To re-onboard, run:
+>   az connectedk8s delete -n ocp-cluster-arc -g rg-openshift-arc --yes
+> ```
+> The cluster-side namespace/SA/SCC setup still runs (it's idempotent), so the script is also useful for repairing partial state.
+
 ### Stage B Verification
 
 ```bash
@@ -209,6 +254,25 @@ Expected output: `connectivityStatus: Connected`, `distribution: openshift`, all
 ---
 
 ## Stage C — Install Foundry Local
+
+> **Already installed Foundry Local?** All scripts in this stage are idempotent:
+> - `03`, `05`: use `helm upgrade --install` — re-runs reconcile to the same state without recreating resources.
+> - `04`, `06`: SCC grants and namespace creation use `kubectl apply` and `oc adm policy add-scc-to-user` — both silently no-op if already applied.
+> - `07`: `kubectl apply` for the ModelDeployment is idempotent. If the model is already Ready, it returns immediately and runs the inference test.
+> - `08`: read-only — runs the E2E test suite against whatever is currently deployed.
+
+### Already deployed? Quick check
+
+```bash
+# Is the operator running?
+kubectl get pods -n "$NAMESPACE"
+helm list -n "$NAMESPACE"
+
+# Is a model deployed and Ready?
+kubectl get modeldeployment -n "$NAMESPACE"
+```
+
+If everything is Running/Ready, you can skip directly to `08-e2e-tests.sh` to re-validate, or re-run the whole sequence — it's fast (~2 minutes) and confirms each layer is healthy.
 
 ### Stage C Prerequisites
 
@@ -250,7 +314,25 @@ The E2E suite (`08`) prints a summary table with PASS/FAIL counts. Expect **7/8 
 
 ## Stage D (optional) — Configure Entra ID Authentication
 
+> **Already configured Entra auth?** Script `09` is fully idempotent:
+> - Looks up the Entra app by name (`ENTRA_APP_NAME`) and reuses it if present.
+> - Checks if `foundry_access` scope already exists before creating.
+> - RBAC role assignments accept "already exists" errors silently.
+
 By default, Foundry Local uses **API-key authentication** (script `05` sets `entraAuth.enabled=false`). For production use, switch to Microsoft Entra ID with Azure RBAC.
+
+### Already configured? Quick check
+
+```bash
+# Is the Entra app already registered?
+az ad app list --display-name "$ENTRA_APP_NAME" --query "[0].{appId:appId, idUri:identifierUris}" -o table
+
+# Is the Arc cluster identity already granted Cognitive Services OpenAI User?
+ARC_OID=$(az connectedk8s show -n "$ARC_CLUSTER_NAME" -g "$ARC_RESOURCE_GROUP" --query identity.principalId -o tsv)
+az role assignment list --assignee "$ARC_OID" -o table
+```
+
+If the app exists with `api://...` URI **and** the Arc identity has the role assignment, you can skip Stage D — or re-run script `09` (it'll no-op every existing piece and only create what's missing).
 
 ### Stage D Prerequisites
 
