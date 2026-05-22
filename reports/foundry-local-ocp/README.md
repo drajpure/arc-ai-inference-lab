@@ -40,6 +40,86 @@ This directory contains everything needed to deploy an OpenShift cluster on Azur
 
 ---
 
+## Before You Start: Authenticate & Configure
+
+Run these steps **once** before invoking any script. All scripts assume `az`, `oc`, and `helm` can already talk to Azure and your cluster.
+
+### 1. Verify tools are on `PATH`
+
+```bash
+which az oc kubectl helm jq curl       # all must resolve
+az version
+oc version --client
+helm version --short
+```
+
+If a tool isn't on `PATH`, prepend it (Git Bash example for tools at `Q:\tmp\...`):
+
+```bash
+export PATH="/q/tmp/helm/windows-amd64:/q/tmp/oc:$PATH"
+```
+
+### 2. Authenticate to Azure
+
+```bash
+az login                                          # browser/device-code flow
+az account set --subscription "<SUBSCRIPTION_ID>" # pick your target subscription
+az account show -o table                          # confirm the active subscription
+```
+
+If you have multiple tenants, force-pick the right one:
+
+```bash
+az login --tenant <TENANT_ID>
+```
+
+> Trouble? See the [Azure CLI extension permissions issue](#azure-cli-extension-permissions-on-windows) in Troubleshooting.
+
+### 3. Authenticate to your OpenShift cluster
+
+**Option A — you already have a kubeconfig file** (e.g., from someone else, or from a prior `openshift-install` run):
+
+```bash
+export KUBECONFIG=/path/to/kubeconfig.yaml
+oc whoami                                         # should print 'system:admin' or your user
+oc get nodes
+```
+
+**Option B — log in interactively** with an OpenShift API URL + token:
+
+```bash
+oc login --server=https://api.<cluster-domain>:6443 --token=<bearer-token>
+# Or username/password:
+oc login --server=https://api.<cluster-domain>:6443 -u <user> -p <password>
+```
+
+The token can be copied from `Copy login command` in the OpenShift web console.
+
+### 4. Configure environment variables
+
+```bash
+cd reports/foundry-local-ocp
+cp env.sh.example env.sh
+# Edit env.sh — at minimum set:
+#   AZURE_SUBSCRIPTION_ID, AZURE_TENANT_ID, AZURE_REGION
+#   ARC_RESOURCE_GROUP, ARC_CLUSTER_NAME
+#   KUBECONFIG (path to your OCP kubeconfig)
+#   DEPLOYMENT_NAME (must match your existing ModelDeployment if re-running on a live cluster)
+source env.sh
+```
+
+### 5. Sanity check before running scripts
+
+```bash
+az account show --query "{sub:name, tenant:tenantId}" -o table
+oc whoami && oc get nodes
+helm list -A 2>/dev/null | head -5
+```
+
+If all three commands return data without errors, you're ready to run `./scripts/01-prep-arc-azure.sh` (or `00-provision-ocp.sh` if you need to create the cluster first).
+
+---
+
 ## Execution Flow
 
 The scripts are grouped into three logical stages:
@@ -209,6 +289,43 @@ rm -rf ./install-dir
 | Arc extension type fails | Preview-gated; not available in your subscription | Use Helm chart directly (script 05 does this) |
 | cert-manager Arc extension fails | CRI-O incompatible images + deprecated seccomp | Use upstream Jetstack charts (script 03 does this) |
 | `02-connect-arc.sh` fails with "resource group not found" | Skipped `01-prep-arc-azure.sh` | Run `01` first — it creates `${ARC_RESOURCE_GROUP}` |
+
+### Azure CLI extension permissions on Windows
+
+Symptom (typically when running `02-connect-arc.sh` or any `az connectedk8s ...` command):
+
+```
+[WinError 5] Access is denied: 'C:\Users\<you>\.azure\cliextensions\connectedk8s\connectedk8s-<ver>.dist-info'
+```
+
+Cause: the `connectedk8s` extension was installed under a different process/user (e.g., elevated shell, OneDrive-synced `.azure` folder, or a different Python install), so the current `az` process can't read its metadata.
+
+Fix (in an **elevated PowerShell**, after closing all bash/az windows):
+
+```powershell
+$ext = "$env:USERPROFILE\.azure\cliextensions"
+takeown /F $ext /R /D Y
+icacls $ext /grant "${env:USERNAME}:(OI)(CI)F" /T
+Remove-Item -Recurse -Force "$env:USERPROFILE\.azure\cliextensions\connectedk8s"
+```
+
+Then back in a **normal** (non-elevated) Git Bash:
+
+```bash
+az extension add --name connectedk8s
+az extension add --name k8s-extension
+az extension list -o table     # confirm both listed
+```
+
+If `.azure` is inside a OneDrive-synced folder, move it off OneDrive permanently:
+
+```bash
+export AZURE_CONFIG_DIR="/c/az-config"
+mkdir -p "$AZURE_CONFIG_DIR"
+az login
+```
+
+Add `export AZURE_CONFIG_DIR="/c/az-config"` to your `env.sh` so it sticks across shells.
 
 ---
 
