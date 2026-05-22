@@ -3,9 +3,12 @@
 # Deploy a catalog model and validate inference.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../env.sh" 2>/dev/null || true
+
 NAMESPACE="${NAMESPACE:-foundry-local-operator}"
 MODEL_ALIAS="${MODEL_ALIAS:-qwen2.5-coder-0.5b}"
-DEPLOYMENT_NAME="${DEPLOYMENT_NAME:-test-model-deploy}"
+DEPLOYMENT_NAME="${DEPLOYMENT_NAME:-qwen-coder-deploy}"
 
 echo "=== Deploying model: ${MODEL_ALIAS} ==="
 
