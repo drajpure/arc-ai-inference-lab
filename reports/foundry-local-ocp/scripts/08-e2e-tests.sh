@@ -101,15 +101,34 @@ run_test() {
   printf "  %-4s | %-40s | %6ss | HTTP %s\n" "${status}" "${test_name}" "${duration}" "${http_code}"
   RESULTS="${RESULTS}\n| ${test_name} | ${status} | ${duration}s | ${http_code} |"
 
-  # Print the actual response so users can see what the model returned.
-  # Disable errexit for this block — jq failures, missing tools, or non-JSON
-  # responses must NOT abort the test suite.
+  # Print the actual request + response so users can validate that the
+  # model output is appropriate for the input prompt. Disable errexit
+  # for this block — visualization failures must not abort the suite.
   set +e
+
+  # ----- Print the input prompt for chat-completion tests -----
+  if [[ "${method}" == "POST" && "${endpoint}" == *"/chat/completions" && -n "${body}" ]]; then
+    local prompt=""
+    if command -v jq &>/dev/null; then
+      prompt=$(echo "${body}" | jq -r '[.messages[] | "[\(.role)] \(.content)"] | join(" | ")' 2>/dev/null)
+    else
+      # Heuristic fallback: pull the last user-role content
+      prompt=$(echo "${body}" | sed -n 's/.*"role":"user","content":"\([^"]*\)".*/\1/p' | tail -1)
+    fi
+    if [[ -n "${prompt}" ]]; then
+      local prompt_oneline
+      prompt_oneline=$(echo "${prompt}" | tr -d '\r' | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-200)
+      [[ ${#prompt} -gt 200 ]] && prompt_oneline="${prompt_oneline}..."
+      printf "       prompt: %s\n" "${prompt_oneline}"
+    fi
+  fi
+
+  # ----- Print the response (or error) body -----
   if [[ "${expect_failure}" == "true" ]]; then
     # For negative tests, print the error body (short — first 200 chars)
     local err_snippet
-    err_snippet=$(echo "${response}" | tr -d '\n' | cut -c1-200)
-    [[ -n "${err_snippet}" ]] && printf "       error: %s\n" "${err_snippet}"
+    err_snippet=$(echo "${response}" | tr -d '\r\n' | cut -c1-200)
+    [[ -n "${err_snippet}" ]] && printf "       error:  %s\n" "${err_snippet}"
   elif [[ "${endpoint}" == "/v1/models" ]]; then
     # GET /v1/models — show model count plus first 3 IDs
     if command -v jq &>/dev/null; then
@@ -133,23 +152,20 @@ run_test() {
       finish=$(echo "${response}" | jq -r '.choices[0].finish_reason // "?"' 2>/dev/null)
     else
       # jq-free fallback: extract message.content and finish_reason via sed.
-      # Works for the OpenAI-compatible response format. Less robust for
-      # content containing literal escaped quotes — install jq for best UX.
       content=$(echo "${response}" | sed -n 's/.*"message":{"role":"assistant","content":"\(\([^"\\]\|\\.\)*\)".*/\1/p' | head -1)
       finish=$(echo "${response}" | sed -n 's/.*"finish_reason":"\([^"]*\)".*/\1/p' | head -1)
       [[ -z "${finish}" ]] && finish="?"
-      # Unescape common JSON sequences: \n \t \" \\
       content=$(printf '%b' "${content//\\\"/\"}")
     fi
     if [[ -n "${content}" ]]; then
       local truncated=""
       [[ ${#content} -gt 200 ]] && truncated="..."
+      # Strip CR + LF so multi-line model output doesn't overwrite the line.
       local content_oneline
-      content_oneline=$(echo "${content}" | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-200)
-      printf "       reply: %s%s (finish=%s)\n" "${content_oneline}" "${truncated}" "${finish}"
+      content_oneline=$(echo "${content}" | tr -d '\r' | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-200)
+      printf "       reply:  %s%s (finish=%s)\n" "${content_oneline}" "${truncated}" "${finish}"
     elif [[ -n "${response}" ]]; then
-      # Fallback — show first 200 chars of raw response
-      printf "       raw:   %s\n" "$(echo "${response}" | tr -d '\n' | cut -c1-200)"
+      printf "       raw:    %s\n" "$(echo "${response}" | tr -d '\r\n' | cut -c1-200)"
     fi
   fi
   set -e
