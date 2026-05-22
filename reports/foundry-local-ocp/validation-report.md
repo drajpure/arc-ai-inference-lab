@@ -162,11 +162,17 @@ Unexpectedly received a manifest list instead of a manifest for a single image
 
 ### D4. Foundry helm chart's `telemetry-collector` requires `privileged` SCC
 
-After installing the chart, the `telemetry-collector` Deployment's init container failed to start under the `restricted-v2` SCC and required `privileged` SCC on its ServiceAccount to come up. The exact securityContext (capabilities, runAsUser, fsGroup) was not re-inspected at the time of writing this report; what was verified is that `privileged` SCC on the `default` SA was sufficient to unblock it.
+After installing the chart, the `telemetry-collector` Deployment failed to start under the `restricted-v2` SCC and required `privileged` SCC on its ServiceAccount to come up.
+
+Partial evidence from `helm show values inference-operator --version 0.260430.8`:
+- The chart sets `fsGroup: 10001` for the telemetry pod spec — outside the namespace's auto-assigned GID range.
+- Container `securityContext` defaults include `allowPrivilegeEscalation: false` and `readOnlyRootFilesystem: true` (good defaults; not the blocker).
+
+The init container's exact `runAsUser` / capabilities were not re-inspected on the live cluster for this report. What is verified: granting `privileged` SCC to the `default` SA in `foundry-local-operator` was sufficient to make the pod start.
 
 **Workaround**: Grant `privileged` SCC to the `default` SA in `foundry-local-operator` namespace (included in the D1 Phase 1 grants). The telemetry-collector starts successfully after SCC propagation.
 
-**Suggestion (not validated)**: Document the SCC requirements explicitly for OpenShift, or restructure the telemetry-collector init so it can run under a less-privileged SCC. Implementation details are out of scope for this report.
+**Suggestion (not validated)**: Document the SCC requirements explicitly for OpenShift, or expose the `fsGroup` value as a Helm parameter so OCP users can set it to a value within their namespace's GID range.
 
 ### D5. Foundry inference operator Arc-extension type is preview-access-gated
 
