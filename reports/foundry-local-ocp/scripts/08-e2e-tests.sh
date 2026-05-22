@@ -71,7 +71,10 @@ run_test() {
   http_code=$(echo "${response}" | tail -1)
   response=$(echo "${response}" | sed '$d')
   local end_time=$(date +%s%N)
-  local duration=$(echo "scale=2; (${end_time} - ${start_time}) / 1000000000" | bc 2>/dev/null || echo "?")
+  # Integer milliseconds — avoids dependency on bc.
+  local duration_ms=$(( (end_time - start_time) / 1000000 ))
+  local duration
+  duration=$(printf "%d.%02d" $((duration_ms / 1000)) $(((duration_ms % 1000) / 10)))
 
   local status="PASS"
   if [[ "${expect_failure}" == "true" ]]; then
@@ -108,7 +111,7 @@ run_test() {
     err_snippet=$(echo "${response}" | tr -d '\n' | cut -c1-200)
     [[ -n "${err_snippet}" ]] && printf "       error: %s\n" "${err_snippet}"
   elif [[ "${endpoint}" == "/v1/models" ]]; then
-    # GET /v1/models — show model count plus first 3 IDs (jq required for parsing)
+    # GET /v1/models — show model count plus first 3 IDs
     if command -v jq &>/dev/null; then
       local model_count first_models
       model_count=$(echo "${response}" | jq -r '.data | length' 2>/dev/null)
@@ -116,7 +119,11 @@ run_test() {
       [[ -z "${model_count}" ]] && model_count="?"
       printf "       models: %s found — %s\n" "${model_count}" "${first_models}"
     else
-      printf "       raw:   %s\n" "$(echo "${response}" | tr -d '\n' | cut -c1-200)"
+      # jq-free fallback: count "id": occurrences, pull first 3 ids via sed.
+      local model_count first_models
+      model_count=$(echo "${response}" | grep -o '"id":' | wc -l | tr -d ' ')
+      first_models=$(echo "${response}" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -3 | paste -sd, -)
+      printf "       models: %s found — %s\n" "${model_count}" "${first_models}"
     fi
   else
     # Chat completion — extract assistant message content + finish_reason
@@ -124,6 +131,15 @@ run_test() {
     if command -v jq &>/dev/null; then
       content=$(echo "${response}" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
       finish=$(echo "${response}" | jq -r '.choices[0].finish_reason // "?"' 2>/dev/null)
+    else
+      # jq-free fallback: extract message.content and finish_reason via sed.
+      # Works for the OpenAI-compatible response format. Less robust for
+      # content containing literal escaped quotes — install jq for best UX.
+      content=$(echo "${response}" | sed -n 's/.*"message":{"role":"assistant","content":"\(\([^"\\]\|\\.\)*\)".*/\1/p' | head -1)
+      finish=$(echo "${response}" | sed -n 's/.*"finish_reason":"\([^"]*\)".*/\1/p' | head -1)
+      [[ -z "${finish}" ]] && finish="?"
+      # Unescape common JSON sequences: \n \t \" \\
+      content=$(printf '%b' "${content//\\\"/\"}")
     fi
     if [[ -n "${content}" ]]; then
       local truncated=""
@@ -132,7 +148,7 @@ run_test() {
       content_oneline=$(echo "${content}" | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-200)
       printf "       reply: %s%s (finish=%s)\n" "${content_oneline}" "${truncated}" "${finish}"
     elif [[ -n "${response}" ]]; then
-      # Fallback — show first 200 chars of raw response (e.g., jq missing)
+      # Fallback — show first 200 chars of raw response
       printf "       raw:   %s\n" "$(echo "${response}" | tr -d '\n' | cut -c1-200)"
     fi
   fi
@@ -188,7 +204,12 @@ echo "========================================="
 echo "  RESULTS SUMMARY"
 echo "========================================="
 TOTAL=$((PASSED + FAILED))
-RATE=$(echo "scale=1; ${PASSED} * 100 / ${TOTAL}" | bc 2>/dev/null || echo "?")
+if [[ ${TOTAL} -gt 0 ]]; then
+  # Integer percentage with one decimal place — no dependency on bc.
+  RATE=$(printf "%d.%d" $((PASSED * 100 / TOTAL)) $(((PASSED * 1000 / TOTAL) % 10)))
+else
+  RATE="0.0"
+fi
 echo "  Total: ${TOTAL} | Passed: ${PASSED} | Failed: ${FAILED}"
 echo "  Pass Rate: ${RATE}%"
 echo "========================================="

@@ -62,7 +62,7 @@ These steps are required regardless of which stage you start from.
 | `kubectl` | ≥ 1.29 | Kubernetes operations | B, C |
 | `helm` | ≥ 3.14 | Chart installations | C |
 | `openshift-install` | ≥ 4.14 | OCP cluster provisioning (UPI/IPI) | A only |
-| `jq` | any | JSON processing | A, C, D |
+| `jq` | any | JSON processing (optional — fallback to sed if missing) | A, C, D |
 | `curl` | any | Inference API testing | C |
 
 **Downloads:**
