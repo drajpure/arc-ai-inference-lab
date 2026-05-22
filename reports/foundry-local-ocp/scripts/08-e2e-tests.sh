@@ -98,34 +98,45 @@ run_test() {
   printf "  %-4s | %-40s | %6ss | HTTP %s\n" "${status}" "${test_name}" "${duration}" "${http_code}"
   RESULTS="${RESULTS}\n| ${test_name} | ${status} | ${duration}s | ${http_code} |"
 
-  # Print the actual response so users can see what the model returned
+  # Print the actual response so users can see what the model returned.
+  # Disable errexit for this block — jq failures, missing tools, or non-JSON
+  # responses must NOT abort the test suite.
+  set +e
   if [[ "${expect_failure}" == "true" ]]; then
     # For negative tests, print the error body (short — first 200 chars)
     local err_snippet
     err_snippet=$(echo "${response}" | tr -d '\n' | cut -c1-200)
     [[ -n "${err_snippet}" ]] && printf "       error: %s\n" "${err_snippet}"
   elif [[ "${endpoint}" == "/v1/models" ]]; then
-    # GET /v1/models — show how many models the server lists
-    local model_count
-    model_count=$(echo "${response}" | jq -r '.data | length' 2>/dev/null || echo "?")
-    local first_models
-    first_models=$(echo "${response}" | jq -r '.data[0:3] | map(.id) | join(", ")' 2>/dev/null || echo "")
-    printf "       models: %s found — %s%s\n" "${model_count}" "${first_models}" "$([[ "${model_count}" -gt 3 ]] 2>/dev/null && echo ", ..." || echo "")"
+    # GET /v1/models — show model count plus first 3 IDs (jq required for parsing)
+    if command -v jq &>/dev/null; then
+      local model_count first_models
+      model_count=$(echo "${response}" | jq -r '.data | length' 2>/dev/null)
+      first_models=$(echo "${response}" | jq -r '.data[0:3] | map(.id) | join(", ")' 2>/dev/null)
+      [[ -z "${model_count}" ]] && model_count="?"
+      printf "       models: %s found — %s\n" "${model_count}" "${first_models}"
+    else
+      printf "       raw:   %s\n" "$(echo "${response}" | tr -d '\n' | cut -c1-200)"
+    fi
   else
-    # Chat completion — extract assistant message content and finish_reason
-    local content finish
-    content=$(echo "${response}" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
-    finish=$(echo "${response}" | jq -r '.choices[0].finish_reason // "?"' 2>/dev/null)
+    # Chat completion — extract assistant message content + finish_reason
+    local content="" finish="?"
+    if command -v jq &>/dev/null; then
+      content=$(echo "${response}" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+      finish=$(echo "${response}" | jq -r '.choices[0].finish_reason // "?"' 2>/dev/null)
+    fi
     if [[ -n "${content}" ]]; then
-      # Collapse newlines, trim to 200 chars for readability
+      local truncated=""
+      [[ ${#content} -gt 200 ]] && truncated="..."
       local content_oneline
       content_oneline=$(echo "${content}" | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-200)
-      printf "       reply: %s%s (finish=%s)\n" "${content_oneline}" "$([[ ${#content} -gt 200 ]] && echo "..." || echo "")" "${finish}"
+      printf "       reply: %s%s (finish=%s)\n" "${content_oneline}" "${truncated}" "${finish}"
     elif [[ -n "${response}" ]]; then
-      # Fallback — show first 200 chars of raw response
+      # Fallback — show first 200 chars of raw response (e.g., jq missing)
       printf "       raw:   %s\n" "$(echo "${response}" | tr -d '\n' | cut -c1-200)"
     fi
   fi
+  set -e
 }
 
 echo "Running tests..."
