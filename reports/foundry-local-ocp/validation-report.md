@@ -26,13 +26,13 @@ This report summarizes the outcome of following the [Deploy Foundry Local as an 
 
 | Item | Value |
 |------|-------|
-| OpenShift version | 4.21 |
+| OpenShift version | 4.21.2 |
 | OpenShift Kubernetes | v1.34.2 |
 | Container runtime | cri-o://1.34.5 |
 | OS | Red Hat Enterprise Linux CoreOS 9.6 |
 | Region | Azure (UPI — IPI-like topology) |
 | Node pool | 3 × combined master+worker (Standard_D8s_v3) |
-| Arc agent version | 1.33.0 |
+| Arc agent version | 1.34.2 |
 | Arc connectivity | Connected (`distributionVersion=4.21`) |
 | cert-manager | v1.19.2 (Jetstack upstream chart) |
 | trust-manager | v0.20.3 (Jetstack upstream chart) |
