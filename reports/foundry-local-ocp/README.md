@@ -42,53 +42,43 @@ This directory contains everything needed to deploy an OpenShift cluster on Azur
 
 ## Execution Flow
 
+The scripts are grouped into three logical stages:
+
+1. **Stage A — OCP cluster** (script `00`): create the OpenShift cluster. Pure OCP, no Arc.
+2. **Stage B — Arc onboarding** (scripts `01`–`02`): Azure-side prep, then connect cluster to Arc.
+3. **Stage C — Foundry Local** (scripts `03`–`08`): install operator, deploy a model, run tests.
+
 ```
-┌─────────────────────────────────────────────────────────┐
-│  Phase 1: Provision OCP Cluster                         │
-│  scripts/00-provision-ocp.sh                            │
-│  (~45 min)                                              │
+┌─ Stage A: OCP Cluster ──────────────────────────────────┐
+│  00-provision-ocp.sh                                    │
+│    • Creates DNS resource group (${OCP_RESOURCE_GROUP}) │
+│    • Runs openshift-install (IPI) → cluster + kubeconfig│
+│    (~45 min)  — skip if you already have a cluster      │
 └──────────────────────────┬──────────────────────────────┘
                            │
-┌──────────────────────────▼──────────────────────────────┐
-│  Phase 2: Connect to Azure Arc                          │
-│  scripts/01-connect-arc.sh                              │
-│  (~5 min)                                               │
+┌─ Stage B: Azure Arc Onboarding ─────────────────────────┐
+│  01-prep-arc-azure.sh   (Azure-side, no cluster access) │
+│    • Creates Arc RG (${ARC_RESOURCE_GROUP})             │
+│    • Registers Microsoft.Kubernetes / .Configuration /  │
+│      .ExtendedLocation providers                        │
+│    • Installs az connectedk8s + k8s-extension           │
+│    (~3 min)                                             │
+│                                                         │
+│  02-connect-arc.sh      (needs KUBECONFIG + Azure)      │
+│    • Pre-creates azure-arc namespace with SCC + Helm    │
+│      ownership labels (OCP workaround)                  │
+│    • az connectedk8s connect --distribution openshift   │
+│    (~5 min)                                             │
 └──────────────────────────┬──────────────────────────────┘
                            │
-┌──────────────────────────▼──────────────────────────────┐
-│  Phase 3: Install cert-manager + trust-manager          │
-│  scripts/02-install-cert-manager.sh                     │
-│  (~2 min)                                               │
-└──────────────────────────┬──────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────┐
-│  Phase 4: Prepare namespace + SCC grants (Phase 1)      │
-│  scripts/03-prep-namespace-scc.sh                       │
-│  (~30 sec)                                              │
-└──────────────────────────┬──────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────┐
-│  Phase 5: Install Foundry inference operator            │
-│  scripts/04-install-foundry-operator.sh                 │
-│  (~3 min)                                               │
-└──────────────────────────┬──────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────┐
-│  Phase 6: Post-install SCC grants (Phase 2)             │
-│  scripts/05-post-install-scc.sh                         │
-│  (~30 sec)                                              │
-└──────────────────────────┬──────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────┐
-│  Phase 7: Deploy model + validate inference             │
-│  scripts/06-deploy-and-validate.sh                      │
-│  (~3–5 min)                                             │
-└──────────────────────────┬──────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────┐
-│  Phase 8: Run E2E test suite + generate report          │
-│  scripts/07-e2e-tests.sh                                │
-│  (~2 min)                                               │
+┌─ Stage C: Foundry Local ────────────────────────────────┐
+│  03-install-cert-manager.sh      cert-manager + trust   │
+│  04-prep-namespace-scc.sh        Phase 1 SCC grants     │
+│  05-install-foundry-operator.sh  Helm install operator  │
+│  06-post-install-scc.sh          Phase 2 SCC grants     │
+│  07-deploy-and-validate.sh       Deploy model + test    │
+│  08-e2e-tests.sh                 Full E2E suite         │
+│  (~10 min total)                                        │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -98,20 +88,36 @@ This directory contains everything needed to deploy an OpenShift cluster on Azur
 
 ## Quick Start (Existing OCP Cluster)
 
-If you already have an OCP cluster with Arc connected:
+If you already have an OCP cluster, skip `00` and start from `01`:
 
 ```bash
-export KUBECONFIG=/path/to/kubeconfig
-export STORAGE_CLASS=""  # Leave empty for default, or "local-storage" if CSI is broken
+cp env.sh.example env.sh
+# Edit env.sh — set KUBECONFIG, ARC_RESOURCE_GROUP, ARC_CLUSTER_NAME, AZURE_REGION
+source env.sh
 
-# Steps 3–8 only
-./scripts/02-install-cert-manager.sh
-./scripts/03-prep-namespace-scc.sh
-./scripts/04-install-foundry-operator.sh
-./scripts/05-post-install-scc.sh
-./scripts/06-deploy-and-validate.sh
-./scripts/07-e2e-tests.sh
+./scripts/01-prep-arc-azure.sh        # Azure-side prep
+./scripts/02-connect-arc.sh           # Connect cluster to Arc
+
+./scripts/03-install-cert-manager.sh
+./scripts/04-prep-namespace-scc.sh
+./scripts/05-install-foundry-operator.sh
+./scripts/06-post-install-scc.sh
+./scripts/07-deploy-and-validate.sh
+./scripts/08-e2e-tests.sh
 ```
+
+If Arc is **also** already connected, skip `01` and `02` as well.
+
+---
+
+## Resource Group Layout
+
+Two distinct resource groups are used, kept separate so OCP infra and Arc onboarding can be managed independently:
+
+| Variable | Default | Created by | Purpose |
+|----------|---------|------------|---------|
+| `OCP_RESOURCE_GROUP` | `rg-ocp-dns` | `00-provision-ocp.sh` | Holds the Azure DNS zone for `${BASE_DOMAIN}` (IPI requirement). Compute/network goes into a separate installer-created infra RG `${CLUSTER_NAME}-<infraID>-rg`. |
+| `ARC_RESOURCE_GROUP` | `rg-ocp-foundry-arc` | `01-prep-arc-azure.sh` | Holds the Arc `connectedCluster` resource. Can equal `OCP_RESOURCE_GROUP` if you prefer a single RG. |
 
 ---
 
@@ -122,14 +128,15 @@ reports/foundry-local-ocp/
 ├── README.md                          # This file
 ├── validation-report.md               # Full validation report with findings
 ├── scripts/
-│   ├── 00-provision-ocp.sh            # Provision OCP on Azure (IPI)
-│   ├── 01-connect-arc.sh              # Connect cluster to Azure Arc
-│   ├── 02-install-cert-manager.sh     # cert-manager + trust-manager
-│   ├── 03-prep-namespace-scc.sh       # Namespace + Phase 1 SCC grants
-│   ├── 04-install-foundry-operator.sh # Helm install inference operator
-│   ├── 05-post-install-scc.sh         # Phase 2 SCC grants
-│   ├── 06-deploy-and-validate.sh      # Deploy model + single inference test
-│   └── 07-e2e-tests.sh               # Full E2E test suite with report
+│   ├── 00-provision-ocp.sh            # [A] Provision OCP on Azure (IPI)
+│   ├── 01-prep-arc-azure.sh           # [B] Azure-side Arc prep (RG, providers, az ext)
+│   ├── 02-connect-arc.sh              # [B] Connect OCP cluster to Arc
+│   ├── 03-install-cert-manager.sh     # [C] cert-manager + trust-manager
+│   ├── 04-prep-namespace-scc.sh       # [C] Namespace + Phase 1 SCC grants
+│   ├── 05-install-foundry-operator.sh # [C] Helm install inference operator
+│   ├── 06-post-install-scc.sh         # [C] Phase 2 SCC grants
+│   ├── 07-deploy-and-validate.sh      # [C] Deploy model + single inference test
+│   └── 08-e2e-tests.sh                # [C] Full E2E test suite with report
 ├── manifests/
 │   ├── local-storage-class.yaml       # Workaround: local StorageClass
 │   ├── local-pv.yaml                  # Workaround: hostPath PV
@@ -144,12 +151,13 @@ reports/foundry-local-ocp/
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Helm pre-install Job stuck in `Pending` | Missing SCC grants on `default` SA | Run `03-prep-namespace-scc.sh` before install |
+| Helm pre-install Job stuck in `Pending` | Missing SCC grants on `default` SA | Run `04-prep-namespace-scc.sh` before install |
 | PVC stuck in `Pending` | CSI driver broken or wrong StorageClass | Use `local-storage` workaround (see manifests/) |
-| `telemetry-collector` CrashLoop | Needs `privileged` SCC for NET_ADMIN caps | Run `05-post-install-scc.sh` |
+| `telemetry-collector` CrashLoop | Needs `privileged` SCC for NET_ADMIN caps | Run `06-post-install-scc.sh` |
 | Model not found in catalog | Wrong alias (docs examples are outdated) | Query catalog: `kubectl get cm foundry-local-catalog -n foundry-local-operator -o jsonpath='{.data.catalog\.json}' \| jq '.models[].alias'` |
-| Arc extension type fails | Preview-gated; not available in your subscription | Use Helm chart directly (script 04 does this) |
-| cert-manager Arc extension fails | CRI-O incompatible images + deprecated seccomp | Use upstream Jetstack charts (script 02 does this) |
+| Arc extension type fails | Preview-gated; not available in your subscription | Use Helm chart directly (script 05 does this) |
+| cert-manager Arc extension fails | CRI-O incompatible images + deprecated seccomp | Use upstream Jetstack charts (script 03 does this) |
+| `02-connect-arc.sh` fails with "resource group not found" | Skipped `01-prep-arc-azure.sh` | Run `01` first — it creates `${ARC_RESOURCE_GROUP}` |
 
 ---
 

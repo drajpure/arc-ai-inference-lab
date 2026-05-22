@@ -14,15 +14,19 @@ source "${SCRIPT_DIR}/../env.sh" 2>/dev/null || true
 CLUSTER_NAME="${CLUSTER_NAME:-ocp-foundry-test}"
 BASE_DOMAIN="${BASE_DOMAIN:-example.com}"
 AZURE_REGION="${AZURE_REGION:-eastus}"
-RESOURCE_GROUP="${RESOURCE_GROUP:-rg-ocp-foundry}"
+OCP_RESOURCE_GROUP="${OCP_RESOURCE_GROUP:-rg-ocp-dns}"
 PULL_SECRET_FILE="${PULL_SECRET_FILE:-.pull-secret.txt}"
 INSTALL_DIR="${INSTALL_DIR:-./install-dir}"
 
 echo "=== OpenShift IPI Install on Azure ==="
-echo "  Cluster:     ${CLUSTER_NAME}"
-echo "  Base Domain: ${BASE_DOMAIN}"
-echo "  Region:      ${AZURE_REGION}"
-echo "  RG:          ${RESOURCE_GROUP}"
+echo "  Cluster:        ${CLUSTER_NAME}"
+echo "  Base Domain:    ${BASE_DOMAIN}"
+echo "  Region:         ${AZURE_REGION}"
+echo "  OCP DNS RG:     ${OCP_RESOURCE_GROUP}  (holds the DNS zone for ${BASE_DOMAIN})"
+echo ""
+echo "  NOTE: openshift-install will create a SEPARATE infra RG named"
+echo "        '${CLUSTER_NAME}-<infraID>-rg' that holds the actual VMs/networking."
+echo "        Arc onboarding is a separate step — see 01-prep-arc-azure.sh."
 echo ""
 
 # Validate tools
@@ -50,9 +54,12 @@ SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 echo "  Subscription: ${SUBSCRIPTION_ID}"
 echo ""
 
-# Create resource group
-echo "=== Creating resource group ==="
-az group create --name "${RESOURCE_GROUP}" --location "${AZURE_REGION}" --output none
+# Create the DNS base-domain resource group (IPI requirement).
+# This RG must contain an Azure DNS zone matching ${BASE_DOMAIN} for the installer
+# to register cluster DNS records. The cluster's compute/network resources go into
+# a separate infra RG created by openshift-install.
+echo "=== Creating DNS resource group ==="
+az group create --name "${OCP_RESOURCE_GROUP}" --location "${AZURE_REGION}" --output none
 
 # Create install-config.yaml
 echo "=== Generating install-config.yaml ==="
@@ -67,7 +74,7 @@ metadata:
   name: ${CLUSTER_NAME}
 platform:
   azure:
-    baseDomainResourceGroupName: ${RESOURCE_GROUP}
+    baseDomainResourceGroupName: ${OCP_RESOURCE_GROUP}
     region: ${AZURE_REGION}
     cloudName: AzurePublicCloud
 compute:
@@ -111,3 +118,7 @@ echo ""
 echo "Verify:"
 echo "  oc get nodes"
 echo "  oc get clusterversion"
+echo ""
+echo "Next steps:"
+echo "  1. ./scripts/01-prep-arc-azure.sh   # Create Arc RG, register providers (Azure-side)"
+echo "  2. ./scripts/02-connect-arc.sh      # Onboard this cluster to Arc"
