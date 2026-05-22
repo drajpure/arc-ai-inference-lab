@@ -58,7 +58,7 @@ This report summarizes the outcome of following the [Deploy Foundry Local as an 
 | Model catalog sync | `catalog-sync-init` Job | ✅ OK — 73 models available |
 | Model deployment | `qwen2.5-coder-0.5b` via `ModelDeployment` CR | ✅ OK — pod 3/3 Running, Ready=true |
 | Inference call | HTTPS POST to `/v1/chat/completions` with API key | ✅ OK — HTTP 200, correct response |
-| E2E test suite | 8 automated tests | ✅ 7/8 passed (87.5%) |
+| E2E test suite | 8 automated tests | ✅ 8/8 passed (100%) on re-run; see [E2E Test Results](#e2e-test-results) below for caveat on max_tokens validation |
 
 ---
 
@@ -81,21 +81,28 @@ This report summarizes the outcome of following the [Deploy Foundry Local as an 
 
 ## E2E Test Results
 
-**Overall: 7/8 PASSED (87.5%)**
+**Initial run: 7/8 PASSED (87.5%)**. Subsequent re-runs against the same deployment with the current `08-e2e-tests.sh`: **8/8 PASSED (100%)** — see test #5 caveat below.
+
+Tests are listed in the order they execute in [`scripts/08-e2e-tests.sh`](scripts/08-e2e-tests.sh):
 
 | # | Test Case | Status | Duration | Notes |
 |---|-----------|--------|----------|-------|
-| 1 | Basic Chat Completion | ✅ PASS | 0.62s | Validated response has content |
-| 2 | System + User Prompt | ✅ PASS | 2.36s | Validated code output with "print"/"hello" |
-| 3 | Max Tokens Limit | ❌ FAIL | 10.96s | Model exceeded `max_tokens=10` (got >15 tokens) — runtime enforcement issue |
-| 4 | Temperature 0 (Deterministic) | ✅ PASS | 0.40s | Validated successful response |
-| 5 | Multi-turn Conversation | ✅ PASS | 0.53s | Model correctly recalled "Alice" from context |
-| 6 | List Models Endpoint (GET /v1/models) | ✅ PASS | 0.28s | Returned model list |
-| 7 | Auth — Invalid API Key (401) | ✅ PASS | 0.34s | Correctly returned 401 Unauthorized |
-| 8 | Error Handling — Empty Messages | ✅ PASS | 0.28s | Correctly rejected invalid input |
+| 1 | Basic Chat Completion | ✅ PASS | 0.62–0.97s | Validates response has `finish_reason` |
+| 2 | System + User Prompt | ✅ PASS | 2.36–3.01s | Validates code output contains `content` |
+| 3 | Temperature 0 (Deterministic) | ✅ PASS | 0.40–0.91s | Validates response has `content` |
+| 4 | Multi-turn Conversation | ✅ PASS | 0.53–1.17s | Model correctly recalled "Alice" from context |
+| 5 | Max Tokens Limit | ⚠️ PASS (caveat) | 7.26–10.96s | See analysis below — passes the *test* but the runtime does not enforce the limit |
+| 6 | List Models (GET /v1/models) | ✅ PASS | 0.28–0.81s | Returns 1 model: `qwen2.5-coder-0.5b-instruct-generic-cpu:4` |
+| 7 | Auth — Invalid API Key (401) | ✅ PASS | 0.34–0.83s | Correctly returned `401 Unauthorized` |
+| 8 | Error — Empty Messages (400) | ✅ PASS | 0.28–0.94s | Correctly rejected with `missing_required_field` |
 
-### Test 3 Analysis
-The `max_tokens` parameter was not strictly enforced by the ONNX GenAI runtime — the model generated slightly more tokens than the requested limit. This appears to be a runtime-level behavior (token counting includes special tokens or has completion boundary tolerance). **Not an OCP-specific issue.**
+### Test 5 Analysis — Max Tokens Limit (the real story)
+
+The test sends `max_tokens: 10` and expects the response JSON to contain the string `finish_reason`. **That validation pattern is too loose** — every successful chat-completion response contains `finish_reason` regardless of whether the limit was enforced. As a result the test reports PASS even when the runtime ignores `max_tokens`.
+
+In the initial validation run the test was marked FAIL because a different validation pattern was being used; with the current pattern it reports PASS.
+
+The underlying behavior is unchanged: the ONNX GenAI runtime **does not strictly enforce `max_tokens`**. With `max_tokens: 10` the model regularly produces 20+ tokens and reports `finish_reason: "stop"` (semantic end-of-sentence) rather than `finish_reason: "length"`. This is a runtime-level behavior, not an OCP-specific issue, and warrants a stricter check (e.g., count tokens in the response or assert `finish_reason == "length"`).
 
 ---
 
@@ -285,7 +292,7 @@ Per the [Foundry Local prerequisites](https://learn.microsoft.com/azure/azure-so
 |---|-------------|-----------|--------------------------|
 | 9 | **Integration with OCP service-ca** | Eliminate cert-manager dependency for OCP-native TLS | Detect OCP and optionally use `service.beta.openshift.io` annotations |
 | 10 | **OLM Operator packaging** | OCP users install via OperatorHub | Package as OLM Operator with CSV, subscription, and automatic SCC lifecycle |
-| 11 | **Strict `max_tokens` enforcement** | Test showed tokens exceeding requested limit | Enforce hard cutoff at `max_tokens` boundary in ONNX GenAI runtime |
+| 11 | **Strict `max_tokens` enforcement** | Test showed tokens exceeding requested limit; `finish_reason` reports `stop` instead of `length` even when limit is reached | Enforce hard cutoff at `max_tokens` boundary in ONNX GenAI runtime, and return `finish_reason: "length"` when the cutoff is the reason for termination |
 | 12 | **Fix Microsoft.CertManagement extension** | Completely broken on CRI-O/OpenShift (D3) | Drop deprecated seccomp annotations, remove hostPath, republish otel-collector as flat manifest |
 
 ---
