@@ -1,50 +1,78 @@
 # Foundry Local on Self-Hosted OpenShift (UPI) — Step-by-Step Guide
 
-This directory contains everything needed to deploy an OpenShift cluster on Azure, connect it to Azure Arc, install Foundry Local, and validate end-to-end inference.
-
-## Prerequisites
-
-### Tools Required
-
-| Tool | Version | Purpose |
-|------|---------|---------|
-| `az` | ≥ 2.64 | Azure CLI for resource management |
-| `oc` | ≥ 4.14 | OpenShift CLI (SCC management, cluster admin) |
-| `kubectl` | ≥ 1.29 | Kubernetes operations |
-| `helm` | ≥ 3.14 | Chart installations |
-| `openshift-install` | ≥ 4.14 | OCP cluster provisioning (UPI/IPI) |
-| `jq` | any | JSON processing |
-| `curl` | any | API testing |
-
-### Downloads
-
-- **oc + openshift-install**: https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/
-- **helm**: https://github.com/helm/helm/releases
-- **az CLI**: https://learn.microsoft.com/cli/azure/install-azure-cli
-
-### Azure Requirements
-
-| Requirement | Details |
-|-------------|---------|
-| Subscription | With Contributor + User Access Administrator (or Owner) |
-| Quota | ≥ 24 vCPU of Standard_D8s_v3 (3 master/worker nodes) |
-| Region | A [Foundry Local supported region](https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/what-is-foundry-local-on-azure-local#supported-regions) |
-| DNS Zone | Azure DNS zone for cluster base domain (or manual DNS) |
-| Red Hat Pull Secret | Download from https://console.redhat.com/openshift/install/azure/installer-provisioned |
-| Service Principal | With permissions to create VMs, networking, DNS records |
-
-### Foundry Local Access
-
-- Submit access request: https://aka.ms/FoundryLocalAzure_PreviewRequest
-- Note: The Helm chart on MCR is publicly accessible even without preview approval
+This directory contains everything needed to deploy a self-hosted OpenShift (OCP) cluster on Azure, connect it to Azure Arc, install Foundry Local, and validate end-to-end inference. Each stage is independent — you can start at the appropriate stage depending on what you already have provisioned.
 
 ---
 
-## Before You Start: Authenticate & Configure
+## Execution Flow
 
-Run these steps **once** before invoking any script. All scripts assume `az`, `oc`, and `helm` can already talk to Azure and your cluster.
+The deployment is broken into **four stages**. Each stage has its own prerequisites and scripts. Stages run in order, but every script is idempotent — safe to re-run.
 
-### 1. Verify tools are on `PATH`
+```
+┌─ Stage A: OCP Cluster ──────────────────────────────────┐
+│  00-provision-ocp.sh                                    │
+│    • Creates DNS resource group                         │
+│    • Runs openshift-install (IPI) → cluster + kubeconfig│
+│    (~45 min)  — skip if you already have a cluster      │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+┌─ Stage B: Azure Arc Onboarding ─────────────────────────┐
+│  01-prep-arc-azure.sh   (Azure-side, no cluster access) │
+│    • Creates Arc RG                                     │
+│    • Registers providers + installs az extensions       │
+│  02-connect-arc.sh      (needs KUBECONFIG + Azure)      │
+│    • Pre-creates azure-arc namespace with SCC + Helm    │
+│      ownership labels (OCP workaround)                  │
+│    • az connectedk8s connect --distribution openshift   │
+│    (~8 min total)                                       │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+┌─ Stage C: Foundry Local ────────────────────────────────┐
+│  03-install-cert-manager.sh      cert-manager + trust   │
+│  04-prep-namespace-scc.sh        Phase 1 SCC grants     │
+│  05-install-foundry-operator.sh  Helm install operator  │
+│  06-post-install-scc.sh          Phase 2 SCC grants     │
+│  07-deploy-and-validate.sh       Deploy model + test    │
+│  08-e2e-tests.sh                 Full E2E suite         │
+│  (~10 min total)                                        │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+┌─ Stage D (optional): Entra ID Authentication ───────────┐
+│  09-configure-entra-auth.sh                             │
+│    • Registers Entra app + scope + RBAC                 │
+│    • Then re-install operator with entraAuth.enabled    │
+│    (~3 min)                                             │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Total time: ~60–70 minutes** (mostly OCP provisioning in Stage A).
+
+---
+
+## Before You Start
+
+These steps are required regardless of which stage you start from.
+
+### Tools Required
+
+| Tool | Version | Purpose | Stages |
+|------|---------|---------|--------|
+| `az` | ≥ 2.64 | Azure CLI for resource management | A, B, D |
+| `oc` | ≥ 4.14 | OpenShift CLI (SCC management, cluster admin) | B, C |
+| `kubectl` | ≥ 1.29 | Kubernetes operations | B, C |
+| `helm` | ≥ 3.14 | Chart installations | C |
+| `openshift-install` | ≥ 4.14 | OCP cluster provisioning (UPI/IPI) | A only |
+| `jq` | any | JSON processing | A, C, D |
+| `curl` | any | Inference API testing | C |
+
+**Downloads:**
+- `oc` + `openshift-install`: https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/
+- `helm`: https://github.com/helm/helm/releases
+- `az` CLI: https://learn.microsoft.com/cli/azure/install-azure-cli
+
+### 1. Open Git Bash and verify tools
+
+The scripts are bash — on Windows, use **Git Bash** or WSL.
 
 ```bash
 which az oc kubectl helm jq curl       # all must resolve
@@ -64,178 +92,211 @@ export PATH="/q/tmp/helm/windows-amd64:/q/tmp/oc:$PATH"
 ```bash
 az login                                          # browser/device-code flow
 az account set --subscription "<SUBSCRIPTION_ID>" # pick your target subscription
-az account show -o table                          # confirm the active subscription
+az account show -o table                          # confirm
 ```
 
-If you have multiple tenants, force-pick the right one:
+If you have multiple tenants:
 
 ```bash
 az login --tenant <TENANT_ID>
 ```
 
-> Trouble? See the [Azure CLI extension permissions issue](#azure-cli-extension-permissions-on-windows) in Troubleshooting.
+> 🔍 Hit `[WinError 5] Access is denied` errors? See [Azure CLI extension permissions on Windows](#azure-cli-extension-permissions-on-windows) in Troubleshooting.
 
-### 3. Authenticate to your OpenShift cluster
-
-**Option A — you already have a kubeconfig file** (e.g., from someone else, or from a prior `openshift-install` run):
+### 3. Clone this repo and configure env.sh
 
 ```bash
-export KUBECONFIG=/path/to/kubeconfig.yaml
-oc whoami                                         # should print 'system:admin' or your user
-oc get nodes
-```
+git clone https://github.com/drajpure/arc-ai-inference-lab.git
+cd arc-ai-inference-lab/reports/foundry-local-ocp
 
-**Option B — log in interactively** with an OpenShift API URL + token:
-
-```bash
-oc login --server=https://api.<cluster-domain>:6443 --token=<bearer-token>
-# Or username/password:
-oc login --server=https://api.<cluster-domain>:6443 -u <user> -p <password>
-```
-
-The token can be copied from `Copy login command` in the OpenShift web console.
-
-### 4. Configure environment variables
-
-```bash
-cd reports/foundry-local-ocp
 cp env.sh.example env.sh
-# Edit env.sh — at minimum set:
-#   AZURE_SUBSCRIPTION_ID, AZURE_TENANT_ID, AZURE_REGION
-#   ARC_RESOURCE_GROUP, ARC_CLUSTER_NAME
-#   KUBECONFIG (path to your OCP kubeconfig)
-#   DEPLOYMENT_NAME (must match your existing ModelDeployment if re-running on a live cluster)
+# Edit env.sh — see comments inside the file
 source env.sh
 ```
 
-### 5. Sanity check before running scripts
+The variables you must set depend on which stage you start at:
 
-```bash
-az account show --query "{sub:name, tenant:tenantId}" -o table
-oc whoami && oc get nodes
-helm list -A 2>/dev/null | head -5
-```
-
-If all three commands return data without errors, you're ready to run `./scripts/01-prep-arc-azure.sh` (or `00-provision-ocp.sh` if you need to create the cluster first).
-
----
-
-## Execution Flow
-
-The scripts are grouped into three logical stages:
-
-1. **Stage A — OCP cluster** (script `00`): create the OpenShift cluster. Pure OCP, no Arc.
-2. **Stage B — Arc onboarding** (scripts `01`–`02`): Azure-side prep, then connect cluster to Arc.
-3. **Stage C — Foundry Local** (scripts `03`–`08`): install operator, deploy a model, run tests.
-
-```
-┌─ Stage A: OCP Cluster ──────────────────────────────────┐
-│  00-provision-ocp.sh                                    │
-│    • Creates DNS resource group (${OCP_RESOURCE_GROUP}) │
-│    • Runs openshift-install (IPI) → cluster + kubeconfig│
-│    (~45 min)  — skip if you already have a cluster      │
-└──────────────────────────┬──────────────────────────────┘
-                           │
-┌─ Stage B: Azure Arc Onboarding ─────────────────────────┐
-│  01-prep-arc-azure.sh   (Azure-side, no cluster access) │
-│    • Creates Arc RG (${ARC_RESOURCE_GROUP})             │
-│    • Registers Microsoft.Kubernetes / .Configuration /  │
-│      .ExtendedLocation providers                        │
-│    • Installs az connectedk8s + k8s-extension           │
-│    (~3 min)                                             │
-│                                                         │
-│  02-connect-arc.sh      (needs KUBECONFIG + Azure)      │
-│    • Pre-creates azure-arc namespace with SCC + Helm    │
-│      ownership labels (OCP workaround)                  │
-│    • az connectedk8s connect --distribution openshift   │
-│    (~5 min)                                             │
-└──────────────────────────┬──────────────────────────────┘
-                           │
-┌─ Stage C: Foundry Local ────────────────────────────────┐
-│  03-install-cert-manager.sh      cert-manager + trust   │
-│  04-prep-namespace-scc.sh        Phase 1 SCC grants     │
-│  05-install-foundry-operator.sh  Helm install operator  │
-│  06-post-install-scc.sh          Phase 2 SCC grants     │
-│  07-deploy-and-validate.sh       Deploy model + test    │
-│  08-e2e-tests.sh                 Full E2E suite         │
-│  (~10 min total)                                        │
-└──────────────────────────┬──────────────────────────────┘
-                           │
-┌─ Stage D (optional): Entra ID Authentication ───────────┐
-│  09-configure-entra-auth.sh                             │
-│    • Registers Entra app (single-tenant)                │
-│    • Exposes 'foundry_access' delegated scope           │
-│    • Forces v2.0 tokens (accessTokenAcceptedVersion=2)  │
-│    • Pre-authorizes Azure CLI as known client           │
-│    • Assigns user/group RBAC role on cluster            │
-│    • Grants Arc cluster identity 'Cognitive Services    │
-│      OpenAI User' (REQUIRED for RBAC checks to work)    │
-│    Then re-install operator with entraAuth.enabled=true │
-│    (~3 min)                                             │
-└─────────────────────────────────────────────────────────┘
-```
-
-**Total time: ~60–70 minutes** (mostly OCP provisioning)
+| Variable | Required by | Notes |
+|----------|------------|-------|
+| `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_REGION` | All | Region must be a [Foundry Local supported region](https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/what-is-foundry-local-on-azure-local#supported-regions) |
+| `CLUSTER_NAME`, `BASE_DOMAIN`, `OCP_RESOURCE_GROUP`, `PULL_SECRET_FILE` | Stage A | OCP install only |
+| `ARC_RESOURCE_GROUP`, `ARC_CLUSTER_NAME` | Stages B, D | Arc connectedCluster |
+| `KUBECONFIG` | Stages B, C, D | Path to OCP kubeconfig |
+| `STORAGE_CLASS`, `MODEL_ALIAS`, `DEPLOYMENT_NAME`, `NAMESPACE` | Stage C | Foundry Local |
+| `ENTRA_APP_NAME`, `ENTRA_USER_OR_GROUP_OBJECT_ID` | Stage D | Optional |
 
 ---
 
-## Quick Start (Existing OCP Cluster)
+## Stage A — Provision OCP Cluster
 
-If you already have an OCP cluster, complete the [Before You Start](#before-you-start-authenticate--configure) steps once, then run scripts `01`–`08`:
+> Skip this stage if you already have an OpenShift cluster. Go to [Stage B](#stage-b--connect-cluster-to-azure-arc).
+
+### Stage A Prerequisites
+
+| Requirement | How to obtain |
+|-------------|---------------|
+| Subscription with **Contributor + User Access Administrator** (or Owner) | Existing Azure subscription |
+| Azure quota: ≥ **24 vCPU** of `Standard_D8s_v3` in your region | `az vm list-usage -l <region> -o table` to check |
+| **Azure DNS zone** matching `${BASE_DOMAIN}` (e.g., `example.com`) | `az network dns zone create -g ${OCP_RESOURCE_GROUP} -n example.com` |
+| **Red Hat pull secret** | Download from https://console.redhat.com/openshift/install/azure/installer-provisioned — save as `.pull-secret.txt` in this directory |
+| **Azure service principal** with VM/network/DNS create permissions | `az ad sp create-for-rbac --role Contributor --scopes /subscriptions/<sub-id>` — credentials cached in `~/.azure/osServicePrincipal.json` by `openshift-install` |
+| `openshift-install` binary on `PATH` | See [Tools Required](#tools-required) |
+
+### Stage A Steps
 
 ```bash
 source env.sh
-
-./scripts/01-prep-arc-azure.sh        # Azure-side prep
-./scripts/02-connect-arc.sh           # Connect cluster to Arc
-
-./scripts/03-install-cert-manager.sh
-./scripts/04-prep-namespace-scc.sh
-./scripts/05-install-foundry-operator.sh
-./scripts/06-post-install-scc.sh
-./scripts/07-deploy-and-validate.sh
-./scripts/08-e2e-tests.sh
+./scripts/00-provision-ocp.sh
 ```
 
-If Arc is **also** already connected, the idempotency guard in `02` will detect it and skip. You can also skip `01` — it's safe to omit if the Arc resource group and providers are already in place.
+This will:
+1. Create the **DNS resource group** (`${OCP_RESOURCE_GROUP}`, default `rg-ocp-dns`).
+2. Generate `install-config.yaml` from your env vars + pull secret.
+3. Run `openshift-install create cluster` — takes ~45 minutes.
 
----
+**On completion**, capture the kubeconfig path:
 
-## Resource Group Layout
+```bash
+export KUBECONFIG="$(pwd)/install-dir/auth/kubeconfig"
+echo "export KUBECONFIG=\"$KUBECONFIG\"" >> env.sh   # persist for next session
+oc get nodes
+oc get clusterversion
+```
 
-Two distinct resource groups are used, kept separate so OCP infra and Arc onboarding can be managed independently:
+### Resource Group Layout (after Stage A)
+
+Two distinct RGs exist after this stage (and the next):
 
 | Variable | Default | Created by | Purpose |
 |----------|---------|------------|---------|
-| `OCP_RESOURCE_GROUP` | `rg-ocp-dns` | `00-provision-ocp.sh` | Holds the Azure DNS zone for `${BASE_DOMAIN}` (IPI requirement). Compute/network goes into a separate installer-created infra RG `${CLUSTER_NAME}-<infraID>-rg`. |
-| `ARC_RESOURCE_GROUP` | `rg-ocp-foundry-arc` | `01-prep-arc-azure.sh` | Holds the Arc `connectedCluster` resource. Can equal `OCP_RESOURCE_GROUP` if you prefer a single RG. |
+| `OCP_RESOURCE_GROUP` | `rg-ocp-dns` | Stage A | Holds the Azure DNS zone for `${BASE_DOMAIN}`. The installer creates a separate infra RG `${CLUSTER_NAME}-<infraID>-rg` for VMs/networking. |
+| `ARC_RESOURCE_GROUP` | `rg-ocp-foundry-arc` | Stage B | Holds the Arc `connectedCluster` resource. Can equal `OCP_RESOURCE_GROUP` if you prefer a single RG. |
 
 ---
 
-## Directory Layout
+## Stage B — Connect Cluster to Azure Arc
 
+### Stage B Prerequisites
+
+| Requirement | Check |
+|-------------|-------|
+| Azure auth done (Step 2 above) | `az account show` succeeds |
+| `KUBECONFIG` points to an OCP cluster | `oc whoami` returns `system:admin` or your user |
+| Cluster admin / SCC privileges on the cluster | `oc auth can-i create scc` returns `yes` |
+| `ARC_RESOURCE_GROUP` and `ARC_CLUSTER_NAME` set in env.sh | `echo $ARC_RESOURCE_GROUP $ARC_CLUSTER_NAME` |
+
+The `az connectedk8s` and `k8s-extension` extensions are installed automatically by script `01`.
+
+### Stage B Steps
+
+```bash
+source env.sh
+./scripts/01-prep-arc-azure.sh    # Azure-side prep — creates ARC_RESOURCE_GROUP, registers providers
+./scripts/02-connect-arc.sh       # Cluster-side prep + az connectedk8s connect
 ```
-reports/foundry-local-ocp/
-├── README.md                          # This file
-├── validation-report.md               # Full validation report with findings
-├── scripts/
-│   ├── 00-provision-ocp.sh            # [A] Provision OCP on Azure (IPI)
-│   ├── 01-prep-arc-azure.sh           # [B] Azure-side Arc prep (RG, providers, az ext)
-│   ├── 02-connect-arc.sh              # [B] Connect OCP cluster to Arc
-│   ├── 03-install-cert-manager.sh     # [C] cert-manager + trust-manager
-│   ├── 04-prep-namespace-scc.sh       # [C] Namespace + Phase 1 SCC grants
-│   ├── 05-install-foundry-operator.sh # [C] Helm install inference operator
-│   ├── 06-post-install-scc.sh         # [C] Phase 2 SCC grants
-│   ├── 07-deploy-and-validate.sh      # [C] Deploy model + single inference test
-│   ├── 08-e2e-tests.sh                # [C] Full E2E test suite with report
-│   └── 09-configure-entra-auth.sh     # [D] (optional) Entra ID app + RBAC for token-based auth
-├── manifests/
-│   ├── local-storage-class.yaml       # Workaround: local StorageClass
-│   ├── local-pv.yaml                  # Workaround: hostPath PV
-│   ├── create-model-dir-pod.yaml      # Workaround: create dir on node
-│   └── sample-model-deployment.yaml   # Example ModelDeployment CR
-└── env.sh.example                     # Environment variables template
+
+### Stage B Verification
+
+```bash
+az connectedk8s show -n "$ARC_CLUSTER_NAME" -g "$ARC_RESOURCE_GROUP" \
+  --query "{name:name, status:connectivityStatus, distro:distribution}" -o table
+
+kubectl get pods -n azure-arc        # all should be Running
 ```
+
+Expected output: `connectivityStatus: Connected`, `distribution: openshift`, all 12 Arc agent pods in `azure-arc` namespace Running.
+
+---
+
+## Stage C — Install Foundry Local
+
+### Stage C Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| Cluster Arc-connected (Stage B done) | `az connectedk8s show ...` returns Connected |
+| Foundry Local preview approval | Submit at https://aka.ms/FoundryLocalAzure_PreviewRequest — note the Helm chart on MCR is publicly accessible even without approval |
+| **`microsoft.certmanagement` Arc extension does NOT work on OpenShift** | Script 03 installs upstream Jetstack cert-manager directly instead |
+| Working `StorageClass` for ReadWriteOnce PVCs | If your default `StorageClass` is broken, set `STORAGE_CLASS=local-storage` in env.sh and apply the local-storage manifests (see [manifests/](#directory-layout)) |
+| `DEPLOYMENT_NAME` set in env.sh | Used by both 07 and 08 — must match if re-running on an existing deployment |
+
+**Why two SCC phases?** OpenShift's Security Context Constraints require granting access to specific service accounts. The Foundry Helm chart's pre-install Job runs under the `default` SA (which doesn't exist yet at install time), so SCC must be granted in two phases:
+- **Phase 1** (`04`): Grant SCC to `default` and `foundry-config-reader` *before* `helm install`.
+- **Phase 2** (`06`): Grant SCC to `inference-operator` and `inference-operator-catalog-sync` (created by the chart) *after* `helm install`.
+
+### Stage C Steps
+
+```bash
+source env.sh
+./scripts/03-install-cert-manager.sh       # cert-manager + trust-manager (Jetstack)
+./scripts/04-prep-namespace-scc.sh         # Phase 1 SCC
+./scripts/05-install-foundry-operator.sh   # Helm install inference-operator
+./scripts/06-post-install-scc.sh           # Phase 2 SCC
+./scripts/07-deploy-and-validate.sh        # Deploy MODEL_ALIAS + single inference test
+./scripts/08-e2e-tests.sh                  # Full 8-test E2E suite
+```
+
+### Stage C Verification
+
+```bash
+kubectl get pods -n "$NAMESPACE"           # inference-operator, model-store, telemetry-collector all Running
+kubectl get modeldeployment -n "$NAMESPACE"
+oc get crd | grep foundry                   # CRDs registered
+```
+
+The E2E suite (`08`) prints a summary table with PASS/FAIL counts. Expect **7/8 passing** on first run (see [validation-report.md](validation-report.md) for details).
+
+---
+
+## Stage D (optional) — Configure Entra ID Authentication
+
+By default, Foundry Local uses **API-key authentication** (script `05` sets `entraAuth.enabled=false`). For production use, switch to Microsoft Entra ID with Azure RBAC.
+
+### Stage D Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| Stages A, B, C complete | Cluster Arc-connected + Foundry installed |
+| **Application Administrator** (or equivalent) role in Entra | Required to create the app registration |
+| **Owner / User Access Administrator** on the cluster RG scope | Required to assign Azure RBAC roles |
+| Object ID of user/group to grant inference access (optional) | `az ad user show --id <upn> --query id -o tsv` |
+
+### Stage D Steps
+
+```bash
+source env.sh
+./scripts/09-configure-entra-auth.sh       # Registers app, sets scope/v2, assigns RBAC
+```
+
+The script outputs three values needed for the operator upgrade. Either copy them into `env.sh` or re-run the script which echoes them at the end:
+
+```bash
+# Take values from script output, then:
+helm upgrade --install inference-operator \
+  oci://mcr.microsoft.com/microsoft.foundry/foundrylocalenabledbyarc/helmcharts/helm/inference-operator \
+  --version "$OPERATOR_VERSION" \
+  --namespace "$NAMESPACE" \
+  --set entraAuth.enabled=true \
+  --set entraAuth.tenantId="$ENTRA_TENANT_ID" \
+  --set entraAuth.audience="$ENTRA_APP_ID_URI"
+```
+
+Then re-run `06-post-install-scc.sh` if the chart created new SAs.
+
+### Stage D Verification
+
+```bash
+# Acquire a token via az
+TOKEN=$(az account get-access-token --resource "$ENTRA_APP_ID_URI" --query accessToken -o tsv)
+
+# Call the inference endpoint with the bearer token instead of api-key
+curl -sk https://localhost:5000/v1/chat/completions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"'"$MODEL_ALIAS"'","messages":[{"role":"user","content":"hi"}],"max_tokens":20}'
+```
+
+A 200 response confirms Entra auth is working. A `401 invalid_token` means a Stage D step was missed — check the [auth doc](https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/how-to-configure-authentication).
 
 ---
 
@@ -260,7 +321,7 @@ All scripts are safe to re-run. The table below summarizes how each script handl
 
 ```bash
 # Re-run any single script — picks up from current state
-./scripts/03-install-cert-manager.sh   # → upgrades or installs as needed
+./scripts/03-install-cert-manager.sh
 
 # Re-run from a specific point onward
 for s in scripts/03-* scripts/04-* scripts/05-*; do bash "$s"; done
@@ -271,12 +332,38 @@ rm -rf ./install-dir
 ./scripts/00-provision-ocp.sh
 ```
 
-**One non-idempotent operation** that the scripts deliberately do NOT guard:
-`helm uninstall` — none of the scripts uninstall anything. Cleanup is left to the operator.
+`helm uninstall` is deliberately not in any script — cleanup is left to the operator.
 
 ---
 
+## Directory Layout
 
+```
+reports/foundry-local-ocp/
+├── README.md                          # This file
+├── validation-report.md               # Full validation report with findings
+├── env.sh.example                     # Environment variables template
+├── scripts/
+│   ├── 00-provision-ocp.sh            # [A] Provision OCP on Azure (IPI)
+│   ├── 01-prep-arc-azure.sh           # [B] Azure-side Arc prep (RG, providers, az ext)
+│   ├── 02-connect-arc.sh              # [B] Connect OCP cluster to Arc
+│   ├── 03-install-cert-manager.sh     # [C] cert-manager + trust-manager
+│   ├── 04-prep-namespace-scc.sh       # [C] Namespace + Phase 1 SCC grants
+│   ├── 05-install-foundry-operator.sh # [C] Helm install inference operator
+│   ├── 06-post-install-scc.sh         # [C] Phase 2 SCC grants
+│   ├── 07-deploy-and-validate.sh      # [C] Deploy model + single inference test
+│   ├── 08-e2e-tests.sh                # [C] Full E2E test suite with report
+│   └── 09-configure-entra-auth.sh     # [D] (optional) Entra ID app + RBAC
+└── manifests/
+    ├── local-storage-class.yaml       # Workaround: local StorageClass
+    ├── local-pv.yaml                  # Workaround: hostPath PV
+    ├── create-model-dir-pod.yaml      # Workaround: create dir on node
+    └── sample-model-deployment.yaml   # Example ModelDeployment CR
+```
+
+---
+
+## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
