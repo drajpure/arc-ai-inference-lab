@@ -1,7 +1,7 @@
 #!/bin/bash
-# 04-post-install-scc.sh
+# 06-post-install-scc.sh
 # Grant SCC to ServiceAccounts created by the Helm chart (Phase 2).
-# Must run AFTER 03-install-foundry-operator.sh completes.
+# Must run AFTER 05-install-foundry-operator.sh completes.
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-foundry-local-operator}"

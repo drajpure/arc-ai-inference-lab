@@ -1,5 +1,5 @@
 #!/bin/bash
-# 07-e2e-tests.sh
+# 08-e2e-tests.sh
 # Run a comprehensive E2E test suite against the deployed Foundry Local model.
 # Outputs results in a structured format suitable for CI/CD or report generation.
 set -euo pipefail
@@ -90,9 +90,9 @@ run_test() {
   fi
 
   if [[ "${status}" == "PASS" ]]; then
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
   else
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
   fi
 
   printf "  %-4s | %-40s | %6ss | HTTP %s\n" "${status}" "${test_name}" "${duration}" "${http_code}"

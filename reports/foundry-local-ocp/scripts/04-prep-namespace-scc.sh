@@ -1,5 +1,5 @@
 #!/bin/bash
-# 02-prep-namespace-scc.sh
+# 04-prep-namespace-scc.sh
 # Prepare the foundry-local-operator namespace with OCP Security Context Constraints.
 # This must run BEFORE the Helm install (Phase 1 SCC grants).
 set -euo pipefail
@@ -26,4 +26,4 @@ done
 
 echo ""
 echo "Phase 1 SCC grants complete."
-echo "Run 03-install-foundry-operator.sh next, then 04-post-install-scc.sh after."
+echo "Run 05-install-foundry-operator.sh next, then 06-post-install-scc.sh after."

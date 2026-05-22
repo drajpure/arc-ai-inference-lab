@@ -1,6 +1,6 @@
 #!/bin/bash
-# 05-deploy-model.sh
-# Deploy a catalog model and validate inference.
+# 07-deploy-and-validate.sh
+# Deploy a Foundry Local catalog model and validate inference end-to-end.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,7 +10,7 @@ NAMESPACE="${NAMESPACE:-foundry-local-operator}"
 MODEL_ALIAS="${MODEL_ALIAS:-qwen2.5-coder-0.5b}"
 DEPLOYMENT_NAME="${DEPLOYMENT_NAME:-qwen-coder-deploy}"
 
-echo "=== Deploying model: ${MODEL_ALIAS} ==="
+echo "=== Deploying model: ${MODEL_ALIAS} as '${DEPLOYMENT_NAME}' in ${NAMESPACE} ==="
 
 cat <<EOF | kubectl apply -f -
 apiVersion: foundrylocal.azure.com/v1
@@ -19,6 +19,7 @@ metadata:
   name: ${DEPLOYMENT_NAME}
   namespace: ${NAMESPACE}
 spec:
+  displayName: "${MODEL_ALIAS} (validation)"
   model:
     catalog:
       name: "${MODEL_ALIAS}"
@@ -35,7 +36,8 @@ spec:
       memory: "4Gi"
 EOF
 
-echo "=== Waiting for model to become ready ==="
+echo "=== Waiting for model to become ready (up to 10 min) ==="
+READY="false"
 for i in $(seq 1 60); do
   STATE=$(kubectl get modeldeployment "${DEPLOYMENT_NAME}" -n "${NAMESPACE}" -o jsonpath='{.status.state}' 2>/dev/null || echo "unknown")
   READY=$(kubectl get modeldeployment "${DEPLOYMENT_NAME}" -n "${NAMESPACE}" -o jsonpath='{.status.ready}' 2>/dev/null || echo "false")
@@ -61,9 +63,13 @@ echo "=== Running inference test ==="
 API_KEY=$(kubectl get secret "${DEPLOYMENT_NAME}-api-keys" -n "${NAMESPACE}" \
   -o jsonpath='{.data.primary-key}' | base64 -d)
 
-# Port-forward in background
+# Port-forward in background — cleanup on any exit path
 kubectl port-forward "svc/${DEPLOYMENT_NAME}" 5000:5000 -n "${NAMESPACE}" &
 PF_PID=$!
+cleanup() {
+  kill "${PF_PID}" 2>/dev/null || true
+}
+trap cleanup EXIT
 sleep 3
 
 # Call inference
@@ -72,15 +78,14 @@ RESPONSE=$(curl -sk https://localhost:5000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d "{\"model\":\"${MODEL_ALIAS}\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello in one sentence.\"}],\"max_tokens\":50}")
 
-# Cleanup port-forward
-kill $PF_PID 2>/dev/null || true
-
 echo ""
 echo "=== Inference Response ==="
-echo "${RESPONSE}" | python3 -m json.tool 2>/dev/null || echo "${RESPONSE}"
+echo "${RESPONSE}" | python3 -m json.tool 2>/dev/null || \
+  echo "${RESPONSE}" | jq . 2>/dev/null || \
+  echo "${RESPONSE}"
 
 # Validate
-if echo "${RESPONSE}" | grep -q '"successful": true\|"finish_reason": "stop"'; then
+if echo "${RESPONSE}" | grep -q '"finish_reason":\s*"stop"\|"successful":\s*true'; then
   echo ""
   echo "✓ Inference validation PASSED"
   exit 0
