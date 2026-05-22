@@ -110,11 +110,11 @@ The underlying behavior is unchanged: the ONNX GenAI runtime **does not strictly
 
 ### D1. Foundry operator requires `privileged` + `anyuid` SCC grants (two-phase)
 
-| Trigger | Foundry helm chart's pre-install Job (`telemetry-init-1`) specifies `runAsUser: 1000` and `fsGroup: 1000` — both outside OCP's auto-assigned UID range (1000760000–1000769999). OCP's `restricted-v2` SCC admission rejects the pod. |
+| Trigger | Foundry helm chart's pre-install Job (`telemetry-init-1`) specifies `runAsUser: 1000` and `fsGroup: 1000`. These are outside the namespace's auto-assigned UID range (the range is set per-namespace via the `openshift.io/sa.scc.uid-range` annotation — typically `1000xxxxxxx/10000` on freshly-created namespaces). OCP's `restricted-v2` SCC admission rejects the pod. |
 |---|---|
-| Symptom | `pods is forbidden: unable to validate against any security context constraint: [spec.initContainers[0].securityContext.runAsUser: Invalid value: 1000]` |
-| Complication | The chart creates ServiceAccounts (`inference-operator`, `inference-operator-catalog-sync`) during install, but the pre-install hook runs under the `default` SA before those SAs exist. This creates a **chicken-and-egg**: you must grant SCC to `default` BEFORE install, then grant to operator SAs AFTER install. |
-| Workaround | Two-phase SCC grant: |
+| Symptom (paraphrased) | `pods is forbidden: unable to validate against any security context constraint: [spec.initContainers[0].securityContext.runAsUser: Invalid value: 1000]` |
+| Complication | The chart creates ServiceAccounts (`inference-operator`, `inference-operator-catalog-sync`) during install, but the pre-install hook runs under the `default` SA before those SAs exist. This creates a chicken-and-egg: you must grant SCC to `default` BEFORE install, then grant to operator SAs AFTER install. |
+| Workaround (executed by `scripts/04-prep-namespace-scc.sh` + `scripts/06-post-install-scc.sh`) | Two-phase SCC grant: |
 
 ```bash
 # Phase 1: BEFORE helm install
@@ -130,7 +130,7 @@ oc adm policy add-scc-to-user anyuid -z inference-operator-catalog-sync -n found
 oc adm policy add-scc-to-user privileged -z inference-operator-catalog-sync -n foundry-local-operator
 ```
 
-| Recommendation | Either (a) add `--set openshift.enabled=true` that creates an SCC resource granting `anyuid`/`privileged` to all chart SAs, or (b) pre-create all SAs in a pre-install hook with lower priority than the telemetry Job, or (c) remove hardcoded UIDs and let OCP assign from namespace range. |
+| Suggestion (not validated) | Options the Foundry team could consider: (a) add an `openshift.enabled=true` Helm value that ships an `SecurityContextConstraints` resource granting `anyuid`/`privileged` to chart SAs; (b) pre-create all SAs in a pre-install hook (`helm.sh/hook-weight: "-10"`) so they exist before the telemetry Job; (c) drop hardcoded UIDs and let OCP assign from the namespace range. These are engineering suggestions — none have been prototyped against the chart in this validation. |
 
 ### D2. Azure Disk CSI driver non-functional (cloud credentials missing)
 
@@ -144,7 +144,7 @@ oc adm policy add-scc-to-user privileged -z inference-operator-catalog-sync -n f
 
 ### D3. Microsoft.CertManagement Arc extension is non-installable on OpenShift (CRI-O incompatible)
 
-Same finding as the [ARO validation report](https://github.com/weinong/foundry-local-on-aro/blob/main/docs/validation-report.md#d3-microsoftcertmanagement-arc-extension-is-non-installable-on-openshift). The deploy doc's [Step 1: Install cert-manager and trust-manager](https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/deploy-foundry-local-arc-extension#step-1-install-cert-manager-and-trust-manager) recommends the `Microsoft.CertManagement` Arc extension. Three independent reasons it cannot run on OpenShift:
+Same finding as the [ARO validation report](https://github.com/weinong/foundry-local-on-aro/blob/main/docs/validation-report.md#d3-microsoftcertmanagement-arc-extension-is-non-installable-on-openshift). The deploy doc's [Step 1: Install cert-manager and trust-manager](https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/deploy-foundry-local-arc-extension#step-1-install-cert-manager-and-trust-manager) recommends the `Microsoft.CertManagement` Arc extension. Three independent blockers were observed during the original install attempt (chart version at the time of validation — may differ in later versions):
 
 **D3a — Deprecated alpha seccomp annotations.** The Microsoft chart's pod specs carry `seccomp.security.alpha.kubernetes.io/pod` annotations. OpenShift's SCC admission rejects these:
 ```
@@ -153,7 +153,7 @@ pod.metadata.annotations[seccomp.security.alpha.kubernetes.io/pod]: Forbidden: s
 
 **D3b — hostPath volumes.** The Microsoft chart mounts `hostPath` volumes in cert-manager deployments. OCP's default SCCs forbid hostPath.
 
-**D3c — Nested OCI index image.** The `otel-collector-internal` sidecar image is a nested OCI manifest index that CRI-O cannot pull:
+**D3c — Nested OCI index image.** The `otel-collector-internal` sidecar image was published as a nested OCI manifest index that CRI-O cannot pull:
 ```
 Unexpectedly received a manifest list instead of a manifest for a single image
 ```
@@ -162,16 +162,11 @@ Unexpectedly received a manifest list instead of a manifest for a single image
 
 ### D4. Foundry helm chart's `telemetry-collector` requires `privileged` SCC
 
-After installing the chart, the `telemetry-collector` Deployment's init container needs:
-- `runAsUser: 0` (root)
-- `NET_ADMIN` + `NET_RAW` capabilities
-- `fsGroup: 10001` (specific group, not in OCP's namespace range)
+After installing the chart, the `telemetry-collector` Deployment's init container failed to start under the `restricted-v2` SCC and required `privileged` SCC on its ServiceAccount to come up. The exact securityContext (capabilities, runAsUser, fsGroup) was not re-inspected at the time of writing this report; what was verified is that `privileged` SCC on the `default` SA was sufficient to unblock it.
 
-Only the `privileged` SCC permits all of these.
+**Workaround**: Grant `privileged` SCC to the `default` SA in `foundry-local-operator` namespace (included in the D1 Phase 1 grants). The telemetry-collector starts successfully after SCC propagation.
 
-**Workaround**: Pre-grant `privileged` SCC to the `default` SA in `foundry-local-operator` namespace (included in D1 workaround). The telemetry-collector starts successfully after SCC propagation.
-
-**Recommendation**: Either document the SCC requirements explicitly for OpenShift, or ship the telemetry-collector init with less-privileged networking setup. The init container likely configures sidecar proxy iptables — could be replaced with CNI-managed setup on OpenShift.
+**Suggestion (not validated)**: Document the SCC requirements explicitly for OpenShift, or restructure the telemetry-collector init so it can run under a less-privileged SCC. Implementation details are out of scope for this report.
 
 ### D5. Foundry inference operator Arc-extension type is preview-access-gated
 
@@ -191,19 +186,19 @@ helm install inference-operator \
 
 ### D6. Pod Security Standards (PSS) namespace labels have no effect on OCP
 
-| Trigger | Foundry docs reference PSS `privileged` enforcement as the security mechanism. The [authentication doc](https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/how-to-configure-authentication) describes API key and Entra ID auth but does not address OCP's SCC layer. |
+| Context | The deploy and authentication docs describe Foundry Local's security model in generic Kubernetes terms (Pod Security Standards, RBAC). They do not mention OCP's Security Context Constraints. |
 |---|---|
-| Divergence | OCP does NOT enforce Kubernetes PSS labels (`pod-security.kubernetes.io/enforce`). OpenShift uses its own Security Context Constraints (SCC) system as the sole pod admission control. |
-| Impact | Applying PSS labels is harmless but provides no security benefit on OCP. The labels were applied for defense-in-depth but do not substitute for SCC grants. |
-| Recommendation | Foundry docs should note that OpenShift requires SCC grants and that PSS labels alone are insufficient. |
+| Observation | OpenShift does not enforce Kubernetes PSS labels (`pod-security.kubernetes.io/enforce`) by default. OpenShift uses Security Context Constraints (SCC) as the pod admission mechanism. |
+| Impact | Applying PSS labels is harmless but provides no admission control on OCP. The labels were applied for defense-in-depth but do not substitute for SCC grants (which is what actually unblocks pod creation). |
+| Suggestion (not validated) | Foundry docs could explicitly note that OpenShift requires SCC grants and that PSS labels alone are insufficient on OCP. |
 
 ### D7. `oc` CLI required — `kubectl` cannot manage SCCs
 
 | Trigger | SCC grants use `oc adm policy add-scc-to-user` — a command that does not exist in standard `kubectl`. |
 |---|---|
 | Impact | Any Foundry Local install automation for OCP must include the `oc` binary, not just `kubectl` + `helm`. |
-| Workaround | Downloaded `oc` CLI v4.21.15 from Red Hat mirror (`openshift-client-windows.zip`). |
-| Alternative | Could apply SCC grants via raw YAML (`ClusterRoleBinding` to `system:openshift:scc:<scc-name>` ClusterRole), but this is fragile and undocumented. |
+| Workaround | Downloaded `oc` CLI v4.21.15 from Red Hat mirror at the time of validation (`openshift-client-windows.zip`). |
+| Alternative (not used in this validation) | OpenShift also supports granting SCCs via `RoleBinding` / `ClusterRoleBinding` to the `system:openshift:scc:<scc-name>` ClusterRole. This is supported by Red Hat ([Managing SCCs in a cluster](https://docs.openshift.com/container-platform/4.21/authentication/managing-security-context-constraints.html)) but the `oc adm policy` command was used here for brevity. |
 
 ---
 
@@ -265,6 +260,8 @@ Foundry Local integrates with cert-manager for automatic TLS:
 ---
 
 ## Improvements Suggested for Foundry Local
+
+> ⚠️ The items in this section are **engineering suggestions** based on observations during validation. They have not been implemented or tested against the Foundry Local chart — none should be treated as validated solutions. The Foundry team owns the final design decisions.
 
 ### High Priority (Blocking for OpenShift adoption)
 
