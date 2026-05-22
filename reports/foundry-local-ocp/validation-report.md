@@ -110,9 +110,13 @@ The underlying behavior is unchanged: the ONNX GenAI runtime **does not strictly
 
 ### D1. Foundry operator requires `privileged` + `anyuid` SCC grants (two-phase)
 
-| Trigger | Foundry helm chart's pre-install Job (`telemetry-init-1`) specifies `runAsUser: 1000` and `fsGroup: 1000`. These are outside the namespace's auto-assigned UID range (the range is set per-namespace via the `openshift.io/sa.scc.uid-range` annotation — typically `1000xxxxxxx/10000` on freshly-created namespaces). OCP's `restricted-v2` SCC admission rejects the pod. |
+| Trigger | Two pods in the Foundry deployment set explicit UIDs that fall outside OCP's namespace-assigned UID range. Verified on the live cluster via `kubectl get pods -n foundry-local-operator -o json`: |
 |---|---|
-| Symptom (paraphrased) | `pods is forbidden: unable to validate against any security context constraint: [spec.initContainers[0].securityContext.runAsUser: Invalid value: 1000]` |
+| | • `inference-operator` pod — `runAsUser: 1000`, `fsGroup: 1000` |
+| | • `inference-operator-model-store` pod — `runAsUser: 1000`, `runAsGroup: 1000`, `fsGroup: 1000` |
+| | OCP allocates UIDs per-namespace via the `openshift.io/sa.scc.uid-range` annotation (typically a range like `1000760000/10000`). UID `1000` falls outside any auto-assigned range, so OCP's `restricted-v2` SCC admission rejects these pods. |
+| Note | The model-serving pod (`qwen-coder-deploy`) does NOT pin `runAsUser` — it accepts OCP's namespace default. So the UID conflict is specific to the operator + model-store. |
+| Symptom (paraphrased) | `pods is forbidden: unable to validate against any security context constraint: [spec.containers[0].securityContext.runAsUser: Invalid value: 1000]` |
 | Complication | The chart creates ServiceAccounts (`inference-operator`, `inference-operator-catalog-sync`) during install, but the pre-install hook runs under the `default` SA before those SAs exist. This creates a chicken-and-egg: you must grant SCC to `default` BEFORE install, then grant to operator SAs AFTER install. |
 | Workaround (executed by `scripts/04-prep-namespace-scc.sh` + `scripts/06-post-install-scc.sh`) | Two-phase SCC grant: |
 
@@ -130,7 +134,7 @@ oc adm policy add-scc-to-user anyuid -z inference-operator-catalog-sync -n found
 oc adm policy add-scc-to-user privileged -z inference-operator-catalog-sync -n foundry-local-operator
 ```
 
-| Suggestion (not validated) | Options the Foundry team could consider: (a) add an `openshift.enabled=true` Helm value that ships an `SecurityContextConstraints` resource granting `anyuid`/`privileged` to chart SAs; (b) pre-create all SAs in a pre-install hook (`helm.sh/hook-weight: "-10"`) so they exist before the telemetry Job; (c) drop hardcoded UIDs and let OCP assign from the namespace range. These are engineering suggestions — none have been prototyped against the chart in this validation. |
+| Suggestion (not validated) | Options the Foundry team could consider: (a) add an `openshift.enabled=true` Helm value that ships an `SecurityContextConstraints` resource granting `anyuid`/`privileged` to chart SAs; (b) pre-create all SAs in a pre-install hook (`helm.sh/hook-weight: "-10"`) so they exist before the telemetry Job; (c) make the `runAsUser` / `fsGroup: 1000` values Helm-configurable so OCP users can omit them and let the namespace range apply. These are engineering suggestions — none have been prototyped against the chart in this validation. |
 
 ### D2. Azure Disk CSI driver non-functional (cloud credentials missing)
 
@@ -162,17 +166,37 @@ Unexpectedly received a manifest list instead of a manifest for a single image
 
 ### D4. Foundry helm chart's `telemetry-collector` requires `privileged` SCC
 
-After installing the chart, the `telemetry-collector` Deployment failed to start under the `restricted-v2` SCC and required `privileged` SCC on its ServiceAccount to come up.
+The `telemetry-collector` Deployment includes an init container (`msi-adapter`) whose securityContext requires capabilities that `restricted-v2` SCC does not permit. **Verified from the live cluster** via `kubectl get pods -n foundry-local-operator -o json`:
 
-Partial evidence from `helm show values inference-operator --version 0.260430.8`:
-- The chart sets `fsGroup: 10001` for the telemetry pod spec — outside the namespace's auto-assigned GID range.
-- Container `securityContext` defaults include `allowPrivilegeEscalation: false` and `readOnlyRootFilesystem: true` (good defaults; not the blocker).
+```json
+{
+  "pod": "telemetry-collector-b574b5c56-w62wk",
+  "spec_securityContext": { "fsGroup": 10001 },
+  "initContainers": [{
+    "name": "msi-adapter",
+    "securityContext": {
+      "runAsUser": 0,
+      "runAsGroup": 0,
+      "runAsNonRoot": false,
+      "capabilities": { "add": ["NET_ADMIN", "NET_RAW"], "drop": ["ALL"] },
+      "privileged": false,
+      "readOnlyRootFilesystem": true
+    }
+  }]
+}
+```
 
-The init container's exact `runAsUser` / capabilities were not re-inspected on the live cluster for this report. What is verified: granting `privileged` SCC to the `default` SA in `foundry-local-operator` was sufficient to make the pod start.
+Three of these specifically conflict with `restricted-v2`:
 
-**Workaround**: Grant `privileged` SCC to the `default` SA in `foundry-local-operator` namespace (included in the D1 Phase 1 grants). The telemetry-collector starts successfully after SCC propagation.
+- `runAsUser: 0` (root) — `restricted-v2` requires non-root or a UID in the namespace's allocated range.
+- `capabilities.add: [NET_ADMIN, NET_RAW]` — `restricted-v2` does not permit adding network capabilities.
+- `fsGroup: 10001` (pod-level) — outside the namespace's auto-assigned GID range.
 
-**Suggestion (not validated)**: Document the SCC requirements explicitly for OpenShift, or expose the `fsGroup` value as a Helm parameter so OCP users can set it to a value within their namespace's GID range.
+Note: although the init container sets `privileged: false`, the combination of root + extra capabilities is still rejected by `restricted-v2`. Only the `privileged` SCC allows all three.
+
+**Workaround**: Grant `privileged` SCC to the `default` SA in `foundry-local-operator` namespace (included in the D1 Phase 1 grants). The telemetry-collector pod starts successfully after SCC propagation.
+
+**Suggestion (not validated)**: Document the SCC requirements explicitly for OpenShift, or make the `msi-adapter` init container's networking-setup step pluggable so it can run under a less-privileged SCC on OCP. Exposing `fsGroup` as a Helm parameter would also help.
 
 ### D5. Foundry inference operator Arc-extension type is preview-access-gated
 
