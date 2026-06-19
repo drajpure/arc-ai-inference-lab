@@ -1,0 +1,7 @@
+# Environment files with real values
+env.sh
+**/env.sh
+
+# Kubeconfig
+kubeconfig.yaml
+**/kubeconfig.yaml
