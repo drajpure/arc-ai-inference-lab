@@ -30,8 +30,7 @@ vim env.sh  # fill in subscription, resource group, Arc cluster name, node, etc.
 ./scripts/00-prerequisites.sh        # Verify tools, connectivity, Arc status
 
 # (Only if cluster is NOT yet Arc-connected:)
-./scripts/01a-prep-arc-azure.sh      # Register providers, create RG, install CLI extensions
-./scripts/01b-connect-arc.sh         # Connect OCP cluster to Azure Arc
+./scripts/01a-connect-arc.sh         # Register providers, create RG, connect to Arc
 
 # Core install flow:
 ./scripts/01-prep-namespace-scc.sh   # Pre-create SAs, grant privileged SCC
@@ -132,8 +131,7 @@ ArcExtension/
 ├── gaps-and-workarounds.md        ← Detailed gap analysis report
 ├── scripts/
 │   ├── 00-prerequisites.sh        ← Verify tools & connectivity
-│   ├── 01a-prep-arc-azure.sh      ← Azure providers + RG (if not Arc-connected)
-│   ├── 01b-connect-arc.sh         ← Connect OCP to Azure Arc (if not Arc-connected)
+│   ├── 01a-connect-arc.sh         ← Azure prep + connect OCP to Arc (if not Arc-connected)
 │   ├── 01-prep-namespace-scc.sh   ← Namespace + SCC grants
 │   ├── 02-prep-storage.sh         ← StorageClass + PV setup
 │   ├── 03-install-extension.sh    ← Arc extension install

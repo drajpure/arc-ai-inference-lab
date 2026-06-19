@@ -142,7 +142,7 @@ if [[ $ERRORS -eq 0 ]]; then
   if [[ "$ARC_CONNECTED" == "true" ]]; then
     echo "  Next: Run ./scripts/01-prep-namespace-scc.sh"
   else
-    echo "  Next: Run ./scripts/01a-prep-arc-azure.sh  (Arc not connected yet)"
+    echo "  Next: Run ./scripts/01a-connect-arc.sh  (Arc not connected yet)"
   fi
 else
   echo "  $ERRORS issue(s) found -- resolve before proceeding"
