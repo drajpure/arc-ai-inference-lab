@@ -18,18 +18,21 @@ source "$ENV_FILE"
 echo "=== Validating Inference Endpoint ==="
 echo ""
 
+# Derive deployment name (same logic as 05-deploy-model.sh)
+DEPLOY_NAME=$(echo "$MODEL_ALIAS" | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+
 # Step 1: Extract API key
 echo "--- Extracting API key ---"
-API_KEY_SECRET="inference-operator-api-key"
+API_KEY_SECRET="${DEPLOY_NAME}-api-keys"
 API_KEY=$(kubectl get secret "$API_KEY_SECRET" -n "$NAMESPACE" \
-  -o jsonpath='{.data.apiKey}' 2>/dev/null | base64 -d)
+  -o jsonpath='{.data.primary-key}' 2>/dev/null | base64 -d)
 
 if [[ -z "$API_KEY" ]]; then
-  echo "❌ Could not extract API key from secret '$API_KEY_SECRET'"
-  echo "   Verify secret exists: kubectl get secret $API_KEY_SECRET -n $NAMESPACE"
+  echo "ERROR: Could not extract API key from secret '$API_KEY_SECRET'"
+  echo "   Available secrets: $(kubectl get secrets -n $NAMESPACE -o name | grep -i key)"
   exit 1
 fi
-echo "✅ API key extracted (${#API_KEY} chars)"
+echo "OK API key extracted (${#API_KEY} chars)"
 echo ""
 
 # Step 2: Start port-forward (background)
@@ -47,16 +50,16 @@ sleep 3
 
 # Verify port-forward is running
 if ! kill -0 $PF_PID 2>/dev/null; then
-  echo "❌ Port-forward failed. Is the service running?"
+  echo "ERROR: Port-forward failed. Is the service running?"
   echo "   Check: kubectl get svc -n $NAMESPACE"
   exit 1
 fi
-echo "✅ Port-forward active on localhost:$LOCAL_PORT (PID: $PF_PID)"
+echo "OK Port-forward active on localhost:$LOCAL_PORT (PID: $PF_PID)"
 echo ""
 
 # Step 3: Send inference request
 echo "--- Sending chat completion request ---"
-echo "Model: $MODEL_ALIAS"
+echo "Model: $DEPLOY_NAME"
 echo "Prompt: What is 2+2? Answer with just the number."
 echo ""
 
@@ -64,7 +67,7 @@ RESPONSE=$(curl -s "http://localhost:${LOCAL_PORT}/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $API_KEY" \
   -d "{
-    \"model\": \"$MODEL_ALIAS\",
+    \"model\": \"$DEPLOY_NAME\",
     \"messages\": [
       {\"role\": \"user\", \"content\": \"What is 2+2? Answer with just the number.\"}
     ],
