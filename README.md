@@ -10,16 +10,17 @@ Validate that AI inference platforms (Foundry Local, and others) can be deployed
 
 | Platform | Distribution | Status | Report |
 |----------|-------------|--------|--------|
-| Foundry Local | OpenShift 4.21 (Self-Hosted UPI) | ✅ Validated | [reports/foundry-local-ocp/](reports/foundry-local-ocp/) |
+| Foundry Local | OpenShift 4.21 (Self-Hosted UPI) | ✅ Validated | [foundry-local-ocp/](foundry-local-ocp/) |
 
 ## Structure
 
 ```
 arc-ai-inference-lab/
 ├── README.md
-└── reports/
-    └── foundry-local-ocp/
-        └── validation-report.md
+└── foundry-local-ocp/
+    ├── validation-report.md
+    ├── scripts/                 # Original Helm-based install
+    └── ArcExtension/            # Arc Extension install (recommended)
 ```
 
 ## Contributing
