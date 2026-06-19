@@ -22,8 +22,8 @@ echo "  Namespace: $NAMESPACE"
 echo ""
 
 # Verify CRD exists
-if ! kubectl get crd modeldeployments.inference.foundry.azure.com &>/dev/null; then
-  echo "❌ ModelDeployment CRD not found. Is the extension installed?"
+if ! kubectl get crd modeldeployments.foundrylocal.azure.com &>/dev/null; then
+  echo "ERROR: ModelDeployment CRD not found. Is the extension installed?"
   exit 1
 fi
 
@@ -31,9 +31,9 @@ fi
 if kubectl get modeldeployment "$MODEL_ALIAS" -n "$NAMESPACE" &>/dev/null; then
   READY=$(kubectl get modeldeployment "$MODEL_ALIAS" -n "$NAMESPACE" \
     -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
-  echo "ℹ️  ModelDeployment '$MODEL_ALIAS' already exists (Ready=$READY)"
+  echo "ModelDeployment '$MODEL_ALIAS' already exists (Ready=$READY)"
   if [[ "$READY" == "True" ]]; then
-    echo "✅ Model is already deployed and ready."
+    echo "OK Model is already deployed and ready."
     exit 0
   fi
   echo "   Waiting for it to become ready..."
@@ -43,7 +43,7 @@ fi
 if ! kubectl get modeldeployment "$MODEL_ALIAS" -n "$NAMESPACE" &>/dev/null; then
   echo "Applying ModelDeployment manifest..."
   kubectl apply -n "$NAMESPACE" -f - <<EOF
-apiVersion: inference.foundry.azure.com/v1alpha1
+apiVersion: foundrylocal.azure.com/v1
 kind: ModelDeployment
 metadata:
   name: $MODEL_ALIAS

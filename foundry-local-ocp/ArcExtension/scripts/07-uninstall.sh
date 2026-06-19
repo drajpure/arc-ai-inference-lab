@@ -29,7 +29,7 @@ echo ""
 
 # Step 1: Delete model deployments
 echo "--- Step 1: Delete model deployments ---"
-if kubectl get crd modeldeployments.inference.foundry.azure.com &>/dev/null; then
+if kubectl get crd modeldeployments.foundrylocal.azure.com &>/dev/null; then
   MODELS=$(kubectl get modeldeployment -n "$NAMESPACE" -o name 2>/dev/null)
   if [[ -n "$MODELS" ]]; then
     echo "$MODELS" | xargs -I {} kubectl delete {} -n "$NAMESPACE" --wait=false
@@ -115,8 +115,8 @@ done
 echo ""
 echo "--- Step 5: Clean up CRDs ---"
 CRDS=(
-  "modeldeployments.inference.foundry.azure.com"
-  "models.inference.foundry.azure.com"
+  "modeldeployments.foundrylocal.azure.com"
+  "models.foundrylocal.azure.com"
 )
 for crd in "${CRDS[@]}"; do
   if kubectl get crd "$crd" &>/dev/null; then
