@@ -27,12 +27,22 @@ cp env.sh.example env.sh
 vim env.sh  # fill in subscription, resource group, Arc cluster name, node, etc.
 
 # 2. Run scripts in order
-./scripts/00-prerequisites.sh      # Verify tools, connectivity, Arc status
-./scripts/01-prep-namespace-scc.sh # Pre-create SAs, grant privileged SCC
-./scripts/02-prep-storage.sh       # Set up local-storage SC + PV (if needed)
-./scripts/03-install-extension.sh  # Install via az k8s-extension create
-./scripts/04-deploy-model.sh       # Deploy a model from catalog
-./scripts/05-validate-inference.sh # Port-forward + send inference request
+./scripts/00-prerequisites.sh        # Verify tools, connectivity, Arc status
+
+# (Only if cluster is NOT yet Arc-connected:)
+./scripts/01a-prep-arc-azure.sh      # Register providers, create RG, install CLI extensions
+./scripts/01b-connect-arc.sh         # Connect OCP cluster to Azure Arc
+
+# Core install flow:
+./scripts/01-prep-namespace-scc.sh   # Pre-create SAs, grant privileged SCC
+./scripts/02-prep-storage.sh         # Set up local-storage SC + PV (if needed)
+./scripts/03-install-extension.sh    # Install via az k8s-extension create
+./scripts/04-deploy-model.sh         # Deploy a model from catalog
+./scripts/05-validate-inference.sh   # Port-forward + send inference request
+
+# Validation & auth:
+./scripts/07-e2e-tests.sh            # Full E2E test suite (10 tests)
+./scripts/08-configure-entra-auth.sh # Entra ID authentication setup
 ```
 
 ## Uninstall
@@ -117,15 +127,20 @@ With `--name foundrylocal` (default in env.sh.example), the prefixed SAs become:
 
 ```
 ArcExtension/
-├── README.md                  ← This file
-├── env.sh.example             ← Template — copy to env.sh
+├── README.md                      ← This file
+├── env.sh.example                 ← Template — copy to env.sh
+├── gaps-and-workarounds.md        ← Detailed gap analysis report
 ├── scripts/
-│   ├── 00-prerequisites.sh    ← Verify tools & connectivity
-│   ├── 01-prep-namespace-scc.sh ← Namespace + SCC grants
-│   ├── 02-prep-storage.sh     ← StorageClass + PV setup
-│   ├── 03-install-extension.sh ← Arc extension install
-│   ├── 04-deploy-model.sh     ← Deploy model from catalog
-│   ├── 05-validate-inference.sh ← End-to-end inference test
-│   └── 06-uninstall.sh        ← Clean removal
-└── manifests/                 ← (Optional YAML manifests for reference)
+│   ├── 00-prerequisites.sh        ← Verify tools & connectivity
+│   ├── 01a-prep-arc-azure.sh      ← Azure providers + RG (if not Arc-connected)
+│   ├── 01b-connect-arc.sh         ← Connect OCP to Azure Arc (if not Arc-connected)
+│   ├── 01-prep-namespace-scc.sh   ← Namespace + SCC grants
+│   ├── 02-prep-storage.sh         ← StorageClass + PV setup
+│   ├── 03-install-extension.sh    ← Arc extension install
+│   ├── 04-deploy-model.sh         ← Deploy model from catalog
+│   ├── 05-validate-inference.sh   ← Quick inference validation
+│   ├── 06-uninstall.sh            ← Clean removal
+│   ├── 07-e2e-tests.sh            ← Full E2E test suite (10 tests)
+│   └── 08-configure-entra-auth.sh ← Entra ID authentication setup
+└── manifests/                     ← (Optional YAML manifests for reference)
 ```
