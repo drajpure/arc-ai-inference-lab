@@ -3,8 +3,8 @@
 # Installs Foundry Local via the Azure Arc extension mechanism.
 #
 # Prerequisites (must be completed before running this):
-#   1. 01-prep-namespace-scc.sh — SCC grants in place
-#   2. 02-prep-storage.sh — storage ready (if USE_LOCAL_STORAGE=true)
+#   1. 02-prep-namespace-scc.sh — SCC grants in place
+#   2. 03-prep-storage.sh — storage ready (if USE_LOCAL_STORAGE=true)
 #   3. Cluster connected to Azure Arc (az connectedk8s show should work)
 #
 # The extension's Helm install is ATOMIC — if any pod can't start within
@@ -54,7 +54,7 @@ EXISTING=$(az k8s-extension show \
 
 if [[ "$EXISTING" == "Succeeded" ]]; then
   echo "✅ Extension '$EXTENSION_NAME' already installed and Succeeded."
-  echo "   To reinstall, first run: 06-uninstall.sh"
+  echo "   To reinstall, first run: 07-uninstall.sh"
   exit 0
 elif [[ "$EXISTING" != "NotFound" && "$EXISTING" != "" ]]; then
   echo "⚠️  Extension exists in state: $EXISTING"
@@ -108,8 +108,8 @@ while [[ $ELAPSED -lt $MAX_WAIT ]]; do
       --query "statuses[0].message" -o tsv 2>/dev/null
     echo ""
     echo "Common causes:"
-    echo "  - PVC couldn't bind (storage not ready) → run 02-prep-storage.sh"
-    echo "  - SCC rejection (pods can't start) → run 01-prep-namespace-scc.sh"
+    echo "  - PVC couldn't bind (storage not ready) → run 03-prep-storage.sh"
+    echo "  - SCC rejection (pods can't start) → run 02-prep-namespace-scc.sh"
     echo "  - Delete failed extension and retry:"
     echo "    az k8s-extension delete --name $EXTENSION_NAME \\"
     echo "      --cluster-name $ARC_CLUSTER_NAME --resource-group $ARC_RESOURCE_GROUP \\"
@@ -143,4 +143,4 @@ echo "=== Post-Install Verification ==="
 echo ""
 kubectl get pods -n "$NAMESPACE"
 echo ""
-echo "Next: Run ./scripts/04-deploy-model.sh"
+echo "Next: Run ./scripts/05-deploy-model.sh"

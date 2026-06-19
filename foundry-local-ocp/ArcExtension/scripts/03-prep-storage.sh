@@ -129,4 +129,4 @@ fi
 echo ""
 echo "=== Storage Setup Complete ==="
 echo ""
-echo "Next: Run ./scripts/03-install-extension.sh"
+echo "Next: Run ./scripts/04-install-extension.sh"

@@ -28,22 +28,22 @@ vim env.sh  # fill in subscription, resource group, Arc cluster name, node, etc.
 
 # 2. Run scripts in order
 ./scripts/00-prerequisites.sh        # Verify tools, connectivity, Arc status
-./scripts/01a-connect-arc.sh         # Register providers, create RG, connect to Arc (skips if already done)
-./scripts/01-prep-namespace-scc.sh   # Pre-create SAs, grant privileged SCC
-./scripts/02-prep-storage.sh         # Set up local-storage SC + PV (if needed)
-./scripts/03-install-extension.sh    # Install via az k8s-extension create
-./scripts/04-deploy-model.sh         # Deploy a model from catalog
-./scripts/05-validate-inference.sh   # Port-forward + send inference request
+./scripts/01-connect-arc.sh          # Register providers, create RG, connect to Arc (skips if already done)
+./scripts/02-prep-namespace-scc.sh   # Pre-create SAs, grant privileged SCC
+./scripts/03-prep-storage.sh         # Set up local-storage SC + PV (if needed)
+./scripts/04-install-extension.sh    # Install via az k8s-extension create
+./scripts/05-deploy-model.sh         # Deploy a model from catalog
+./scripts/06-validate-inference.sh   # Port-forward + send inference request
 
 # Optional:
-./scripts/07-e2e-tests.sh            # Full E2E test suite (10 tests)
-./scripts/08-configure-entra-auth.sh # Entra ID authentication setup
+./scripts/08-e2e-tests.sh            # Full E2E test suite (10 tests)
+./scripts/09-configure-entra-auth.sh # Entra ID authentication setup
 ```
 
 ## Uninstall
 
 ```bash
-./scripts/06-uninstall.sh  # Removes extension, SCC grants, CRDs, PVCs; restores default SC
+./scripts/07-uninstall.sh  # Removes extension, SCC grants, CRDs, PVCs; restores default SC
 ```
 
 ## Architecture
@@ -127,14 +127,14 @@ ArcExtension/
 ├── gaps-and-workarounds.md        ← Detailed gap analysis report
 ├── scripts/
 │   ├── 00-prerequisites.sh        ← Verify tools & connectivity
-│   ├── 01a-connect-arc.sh         ← Azure prep + connect OCP to Arc (if not Arc-connected)
-│   ├── 01-prep-namespace-scc.sh   ← Namespace + SCC grants
-│   ├── 02-prep-storage.sh         ← StorageClass + PV setup
-│   ├── 03-install-extension.sh    ← Arc extension install
-│   ├── 04-deploy-model.sh         ← Deploy model from catalog
-│   ├── 05-validate-inference.sh   ← Quick inference validation
-│   ├── 06-uninstall.sh            ← Clean removal
-│   ├── 07-e2e-tests.sh            ← Full E2E test suite (10 tests)
-│   └── 08-configure-entra-auth.sh ← Entra ID authentication setup
+│   ├── 01-connect-arc.sh          ← Azure prep + connect OCP to Arc
+│   ├── 02-prep-namespace-scc.sh   ← Namespace + SCC grants
+│   ├── 03-prep-storage.sh         ← StorageClass + PV setup
+│   ├── 04-install-extension.sh    ← Arc extension install
+│   ├── 05-deploy-model.sh         ← Deploy model from catalog
+│   ├── 06-validate-inference.sh   ← Quick inference validation
+│   ├── 07-uninstall.sh            ← Clean removal
+│   ├── 08-e2e-tests.sh            ← Full E2E test suite (10 tests)
+│   └── 09-configure-entra-auth.sh ← Entra ID authentication setup
 └── manifests/                     ← (Optional YAML manifests for reference)
 ```

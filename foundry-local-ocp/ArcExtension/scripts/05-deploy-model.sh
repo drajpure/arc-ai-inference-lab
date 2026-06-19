@@ -3,7 +3,7 @@
 # Deploys a model via the ModelDeployment CRD created by the extension.
 #
 # Prerequisites:
-#   - Extension installed and all pods Running (03-install-extension.sh)
+#   - Extension installed and all pods Running (04-install-extension.sh)
 #   - The models.inference.foundry.azure.com CRD must exist
 
 set -euo pipefail
@@ -92,4 +92,4 @@ if [[ $ELAPSED -ge $MAX_WAIT ]]; then
 fi
 
 echo ""
-echo "Next: Run ./scripts/05-validate-inference.sh"
+echo "Next: Run ./scripts/06-validate-inference.sh"

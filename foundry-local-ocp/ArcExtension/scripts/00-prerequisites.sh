@@ -140,9 +140,9 @@ if [[ $ERRORS -eq 0 ]]; then
   echo "  All prerequisites met"
   echo ""
   if [[ "$ARC_CONNECTED" == "true" ]]; then
-    echo "  Next: Run ./scripts/01-prep-namespace-scc.sh"
+    echo "  Next: Run ./scripts/02-prep-namespace-scc.sh"
   else
-    echo "  Next: Run ./scripts/01a-connect-arc.sh  (Arc not connected yet)"
+    echo "  Next: Run ./scripts/01-connect-arc.sh  (Arc not connected yet)"
   fi
 else
   echo "  $ERRORS issue(s) found -- resolve before proceeding"

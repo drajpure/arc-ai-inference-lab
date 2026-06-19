@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# 01-prep-namespace-scc.sh
+# 02-prep-namespace-scc.sh
 # Pre-creates the namespace (if needed) and grants privileged SCC to all
 # ServiceAccounts that the Arc extension will create.
 #
-# MUST run BEFORE the extension install (02-install-extension.sh).
+# MUST run BEFORE the extension install (04-install-extension.sh).
 # The extension's Helm install is atomic — if pods can't start due to SCC,
 # the entire release rolls back. So SCC grants must be in place first.
 
@@ -105,4 +105,4 @@ echo "  - inference-operator-api: msi-adapter init runs as root with NET_ADMIN/N
 echo "  - telemetry-collector: msi-adapter init runs as root with NET_ADMIN/NET_RAW"
 echo "  - model-store: runAsUser=1000, fsGroup=1000"
 echo ""
-echo "Next: Run ./scripts/02-prep-storage.sh"
+echo "Next: Run ./scripts/03-prep-storage.sh"
