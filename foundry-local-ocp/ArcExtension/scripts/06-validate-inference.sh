@@ -35,16 +35,16 @@ fi
 echo "OK API key extracted (${#API_KEY} chars)"
 echo ""
 
-# Step 2: Start port-forward (background)
+# Step 2: Start port-forward to model service (background)
 echo "--- Starting port-forward ---"
-SVC_NAME="${EXTENSION_NAME}-inference-operator-api"
-LOCAL_PORT=8080
+SVC_NAME="$DEPLOY_NAME"
+LOCAL_PORT=5000
 
 # Kill any existing port-forward on this port
-pkill -f "port-forward.*$LOCAL_PORT:8080" 2>/dev/null || true
+pkill -f "port-forward.*$LOCAL_PORT:5000" 2>/dev/null || true
 sleep 1
 
-kubectl port-forward "svc/$SVC_NAME" "$LOCAL_PORT:8080" -n "$NAMESPACE" &
+kubectl port-forward "svc/$SVC_NAME" "$LOCAL_PORT:5000" -n "$NAMESPACE" &
 PF_PID=$!
 sleep 3
 
@@ -65,7 +65,7 @@ echo ""
 
 RESPONSE=$(curl -sk "https://localhost:${LOCAL_PORT}/v1/chat/completions" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $API_KEY" \
+  -H "api-key: $API_KEY" \
   -d "{
     \"model\": \"$DEPLOY_NAME\",
     \"messages\": [
