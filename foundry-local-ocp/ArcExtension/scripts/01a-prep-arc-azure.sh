@@ -20,22 +20,22 @@ fi
 source "$ENV_FILE"
 
 echo "=== Arc Azure-side Preparation ==="
-echo "  Subscription:     $SUBSCRIPTION_ID"
+echo "  Subscription:     $AZURE_SUBSCRIPTION_ID"
 echo "  Arc RG:           $ARC_RESOURCE_GROUP"
 echo "  Region:           $AZURE_REGION"
 echo ""
 
 # Validate Azure login
 if ! az account show &>/dev/null; then
-  echo "❌ Not logged into Azure CLI. Run: az login --tenant $TENANT_ID"
+  echo "❌ Not logged into Azure CLI. Run: az login --tenant $AZURE_TENANT_ID"
   exit 1
 fi
 
 # Set subscription
 CURRENT_SUB=$(az account show --query id -o tsv)
-if [[ "$CURRENT_SUB" != "$SUBSCRIPTION_ID" ]]; then
-  echo "Setting subscription to $SUBSCRIPTION_ID..."
-  az account set --subscription "$SUBSCRIPTION_ID"
+if [[ "$CURRENT_SUB" != "$AZURE_SUBSCRIPTION_ID" ]]; then
+  echo "Setting subscription to $AZURE_SUBSCRIPTION_ID..."
+  az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 fi
 
 # Step 1: Install/update Azure CLI extensions

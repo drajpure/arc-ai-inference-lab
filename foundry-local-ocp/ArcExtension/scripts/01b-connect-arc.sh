@@ -36,7 +36,7 @@ done
 
 # Validate Azure login + RG
 if ! az account show &>/dev/null; then
-  echo "❌ Not logged into Azure CLI. Run: az login --tenant $TENANT_ID"
+  echo "❌ Not logged into Azure CLI. Run: az login --tenant $AZURE_TENANT_ID"
   exit 1
 fi
 if ! az group show --name "$ARC_RESOURCE_GROUP" &>/dev/null; then

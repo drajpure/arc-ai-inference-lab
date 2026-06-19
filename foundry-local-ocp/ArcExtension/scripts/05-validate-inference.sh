@@ -56,7 +56,7 @@ echo ""
 
 # Step 3: Send inference request
 echo "--- Sending chat completion request ---"
-echo "Model: $MODEL_NAME"
+echo "Model: $MODEL_ALIAS"
 echo "Prompt: What is 2+2? Answer with just the number."
 echo ""
 
@@ -64,7 +64,7 @@ RESPONSE=$(curl -s "http://localhost:${LOCAL_PORT}/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $API_KEY" \
   -d "{
-    \"model\": \"$MODEL_NAME\",
+    \"model\": \"$MODEL_ALIAS\",
     \"messages\": [
       {\"role\": \"user\", \"content\": \"What is 2+2? Answer with just the number.\"}
     ],

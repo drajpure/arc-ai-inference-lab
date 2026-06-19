@@ -39,7 +39,7 @@ ENTRA_MSI_OBJECT_ID="${ENTRA_MSI_OBJECT_ID:-}"
 # Azure CLI client ID (well-known, do not change)
 AZ_CLI_CLIENT_ID="04b07795-8ddb-461a-bbee-02f9e1bf7b46"
 
-CLUSTER_SCOPE="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${ARC_RESOURCE_GROUP}/providers/Microsoft.Kubernetes/connectedClusters/${ARC_CLUSTER_NAME}"
+CLUSTER_SCOPE="/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${ARC_RESOURCE_GROUP}/providers/Microsoft.Kubernetes/connectedClusters/${ARC_CLUSTER_NAME}"
 
 echo "=== Configure Entra ID Auth for Foundry Local ==="
 echo "  App name:    $ENTRA_APP_NAME"

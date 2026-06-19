@@ -49,7 +49,7 @@ echo "--- Azure CLI Auth ---"
 if AZ_ACCOUNT=$(az account show --query "name" -o tsv 2>/dev/null); then
   echo "  OK Logged in: $AZ_ACCOUNT"
 else
-  echo "  FAIL Not logged in. Run: az login --tenant $TENANT_ID"
+  echo "  FAIL Not logged in. Run: az login --tenant $AZURE_TENANT_ID"
   ERRORS=$((ERRORS + 1))
 fi
 
@@ -58,11 +58,11 @@ echo ""
 # 3. Correct subscription
 echo "--- Subscription ---"
 if CURRENT_SUB=$(az account show --query "id" -o tsv 2>/dev/null); then
-  if [[ "$CURRENT_SUB" == "$SUBSCRIPTION_ID" ]]; then
-    echo "  OK Active subscription: $SUBSCRIPTION_ID"
+  if [[ "$CURRENT_SUB" == "$AZURE_SUBSCRIPTION_ID" ]]; then
+    echo "  OK Active subscription: $AZURE_SUBSCRIPTION_ID"
   else
-    echo "  WARN Active: $CURRENT_SUB (expected: $SUBSCRIPTION_ID)"
-    echo "       Run: az account set --subscription $SUBSCRIPTION_ID"
+    echo "  WARN Active: $CURRENT_SUB (expected: $AZURE_SUBSCRIPTION_ID)"
+    echo "       Run: az account set --subscription $AZURE_SUBSCRIPTION_ID"
     ERRORS=$((ERRORS + 1))
   fi
 else

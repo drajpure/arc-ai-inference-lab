@@ -17,7 +17,7 @@ source "$ENV_FILE"
 
 echo "=== Deploying Model ==="
 echo ""
-echo "  Model:     $MODEL_NAME"
+echo "  Model:     $MODEL_ALIAS"
 echo "  Namespace: $NAMESPACE"
 echo ""
 
@@ -28,10 +28,10 @@ if ! kubectl get crd modeldeployments.inference.foundry.azure.com &>/dev/null; t
 fi
 
 # Check if deployment already exists
-if kubectl get modeldeployment "$MODEL_NAME" -n "$NAMESPACE" &>/dev/null; then
-  READY=$(kubectl get modeldeployment "$MODEL_NAME" -n "$NAMESPACE" \
+if kubectl get modeldeployment "$MODEL_ALIAS" -n "$NAMESPACE" &>/dev/null; then
+  READY=$(kubectl get modeldeployment "$MODEL_ALIAS" -n "$NAMESPACE" \
     -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
-  echo "ℹ️  ModelDeployment '$MODEL_NAME' already exists (Ready=$READY)"
+  echo "ℹ️  ModelDeployment '$MODEL_ALIAS' already exists (Ready=$READY)"
   if [[ "$READY" == "True" ]]; then
     echo "✅ Model is already deployed and ready."
     exit 0
@@ -40,17 +40,17 @@ if kubectl get modeldeployment "$MODEL_NAME" -n "$NAMESPACE" &>/dev/null; then
 fi
 
 # Deploy the model
-if ! kubectl get modeldeployment "$MODEL_NAME" -n "$NAMESPACE" &>/dev/null; then
+if ! kubectl get modeldeployment "$MODEL_ALIAS" -n "$NAMESPACE" &>/dev/null; then
   echo "Applying ModelDeployment manifest..."
   kubectl apply -n "$NAMESPACE" -f - <<EOF
 apiVersion: inference.foundry.azure.com/v1alpha1
 kind: ModelDeployment
 metadata:
-  name: $MODEL_NAME
+  name: $MODEL_ALIAS
 spec:
   model:
     catalog:
-      name: $MODEL_NAME
+      name: $MODEL_ALIAS
   compute: cpu
 EOF
 fi
@@ -65,18 +65,18 @@ ELAPSED=0
 INTERVAL=15
 
 while [[ $ELAPSED -lt $MAX_WAIT ]]; do
-  READY=$(kubectl get modeldeployment "$MODEL_NAME" -n "$NAMESPACE" \
+  READY=$(kubectl get modeldeployment "$MODEL_ALIAS" -n "$NAMESPACE" \
     -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
 
   if [[ "$READY" == "True" ]]; then
     echo ""
-    echo "✅ Model '$MODEL_NAME' is Ready!"
+    echo "✅ Model '$MODEL_ALIAS' is Ready!"
     echo ""
-    kubectl get modeldeployment "$MODEL_NAME" -n "$NAMESPACE"
+    kubectl get modeldeployment "$MODEL_ALIAS" -n "$NAMESPACE"
     break
   fi
 
-  MESSAGE=$(kubectl get modeldeployment "$MODEL_NAME" -n "$NAMESPACE" \
+  MESSAGE=$(kubectl get modeldeployment "$MODEL_ALIAS" -n "$NAMESPACE" \
     -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null)
   printf "  [%3ds] Ready=%s Message=%s\n" "$ELAPSED" "${READY:-Unknown}" "${MESSAGE:-Pending}"
 
@@ -87,7 +87,7 @@ done
 if [[ $ELAPSED -ge $MAX_WAIT ]]; then
   echo ""
   echo "⚠️  Timeout after ${MAX_WAIT}s. Model may still be downloading."
-  echo "   Check: kubectl get modeldeployment $MODEL_NAME -n $NAMESPACE -o yaml"
+  echo "   Check: kubectl get modeldeployment $MODEL_ALIAS -n $NAMESPACE -o yaml"
   exit 1
 fi
 
