@@ -28,18 +28,14 @@ vim env.sh  # fill in subscription, resource group, Arc cluster name, node, etc.
 
 # 2. Run scripts in order
 ./scripts/00-prerequisites.sh        # Verify tools, connectivity, Arc status
-
-# (Only if cluster is NOT yet Arc-connected:)
-./scripts/01a-connect-arc.sh         # Register providers, create RG, connect to Arc
-
-# Core install flow:
+./scripts/01a-connect-arc.sh         # Register providers, create RG, connect to Arc (skips if already done)
 ./scripts/01-prep-namespace-scc.sh   # Pre-create SAs, grant privileged SCC
 ./scripts/02-prep-storage.sh         # Set up local-storage SC + PV (if needed)
 ./scripts/03-install-extension.sh    # Install via az k8s-extension create
 ./scripts/04-deploy-model.sh         # Deploy a model from catalog
 ./scripts/05-validate-inference.sh   # Port-forward + send inference request
 
-# Validation & auth:
+# Optional:
 ./scripts/07-e2e-tests.sh            # Full E2E test suite (10 tests)
 ./scripts/08-configure-entra-auth.sh # Entra ID authentication setup
 ```
