@@ -2,16 +2,22 @@
 # 00-prerequisites.sh
 # Verifies all prerequisites for Foundry Local Arc Extension install on OCP.
 # Run this first to catch missing tools or configuration early.
+#
+# NOTE: This is a diagnostic script — it intentionally does NOT use
+# set -e so it can report ALL issues instead of exiting on the first one.
 
-set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/../env.sh"
 
-ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/env.sh"
 if [[ ! -f "$ENV_FILE" ]]; then
-  echo "❌ env.sh not found at: $ENV_FILE"
-  echo "   Copy env.sh.example to env.sh and fill in your values:"
-  echo "   cp $(dirname "$ENV_FILE")/env.sh.example $(dirname "$ENV_FILE")/env.sh"
+  echo "ERROR: env.sh not found at: $ENV_FILE"
+  echo ""
+  echo "  Copy env.sh.example to env.sh and fill in your values:"
+  echo "  cp ${SCRIPT_DIR}/../env.sh.example ${SCRIPT_DIR}/../env.sh"
   exit 1
 fi
+
+# shellcheck source=../env.sh
 source "$ENV_FILE"
 
 echo "=== Checking Prerequisites ==="
@@ -22,11 +28,16 @@ ERRORS=0
 # 1. Required CLI tools
 echo "--- CLI Tools ---"
 for tool in az kubectl oc jq curl; do
-  if command -v "$tool" &>/dev/null; then
-    VERSION=$("$tool" --version 2>&1 | head -1 || echo "installed")
-    echo "  ✅ $tool: $VERSION"
+  if command -v "$tool" >/dev/null 2>&1; then
+    VERSION=""
+    case "$tool" in
+      az)      VERSION=$(az version 2>/dev/null | head -1) ;;
+      jq)      VERSION=$(jq --version 2>/dev/null) ;;
+      *)       VERSION=$("$tool" version --client --short 2>/dev/null || "$tool" --version 2>/dev/null | head -1 || echo "installed") ;;
+    esac
+    echo "  OK $tool: ${VERSION:-installed}"
   else
-    echo "  ❌ $tool: NOT FOUND"
+    echo "  MISSING $tool: NOT FOUND"
     ERRORS=$((ERRORS + 1))
   fi
 done
@@ -35,11 +46,10 @@ echo ""
 
 # 2. Azure CLI login
 echo "--- Azure CLI Auth ---"
-AZ_ACCOUNT=$(az account show --query "{sub:id, tenant:tenantId, name:name}" -o tsv 2>/dev/null || true)
-if [[ -n "$AZ_ACCOUNT" ]]; then
-  echo "  ✅ Logged in: $AZ_ACCOUNT"
+if AZ_ACCOUNT=$(az account show --query "name" -o tsv 2>/dev/null); then
+  echo "  OK Logged in: $AZ_ACCOUNT"
 else
-  echo "  ❌ Not logged in. Run: az login --tenant $TENANT_ID"
+  echo "  FAIL Not logged in. Run: az login --tenant $TENANT_ID"
   ERRORS=$((ERRORS + 1))
 fi
 
@@ -47,13 +57,16 @@ echo ""
 
 # 3. Correct subscription
 echo "--- Subscription ---"
-CURRENT_SUB=$(az account show --query "id" -o tsv 2>/dev/null || true)
-if [[ "$CURRENT_SUB" == "$SUBSCRIPTION_ID" ]]; then
-  echo "  ✅ Active subscription: $SUBSCRIPTION_ID"
+if CURRENT_SUB=$(az account show --query "id" -o tsv 2>/dev/null); then
+  if [[ "$CURRENT_SUB" == "$SUBSCRIPTION_ID" ]]; then
+    echo "  OK Active subscription: $SUBSCRIPTION_ID"
+  else
+    echo "  WARN Active: $CURRENT_SUB (expected: $SUBSCRIPTION_ID)"
+    echo "       Run: az account set --subscription $SUBSCRIPTION_ID"
+    ERRORS=$((ERRORS + 1))
+  fi
 else
-  echo "  ⚠️  Active subscription: $CURRENT_SUB"
-  echo "     Expected: $SUBSCRIPTION_ID"
-  echo "     Run: az account set --subscription $SUBSCRIPTION_ID"
+  echo "  FAIL Cannot check subscription (not logged in)"
   ERRORS=$((ERRORS + 1))
 fi
 
@@ -61,11 +74,12 @@ echo ""
 
 # 4. kubectl connectivity
 echo "--- Kubernetes Connectivity ---"
-if kubectl cluster-info &>/dev/null; then
-  SERVER_VERSION=$(kubectl version -o json 2>/dev/null | jq -r '.serverVersion.gitVersion // "unknown"' || echo "unknown")
-  echo "  ✅ Connected (K8s $SERVER_VERSION)"
+echo "  KUBECONFIG=$KUBECONFIG"
+if kubectl cluster-info >/dev/null 2>&1; then
+  SERVER_VERSION=$(kubectl version -o json 2>/dev/null | jq -r '.serverVersion.gitVersion // "unknown"' 2>/dev/null || echo "unknown")
+  echo "  OK Connected (K8s $SERVER_VERSION)"
 else
-  echo "  ❌ Cannot reach cluster. Check KUBECONFIG."
+  echo "  FAIL Cannot reach cluster. Check KUBECONFIG path."
   ERRORS=$((ERRORS + 1))
 fi
 
@@ -73,27 +87,25 @@ echo ""
 
 # 5. OCP version
 echo "--- OpenShift Version ---"
-OCP_VERSION=$(oc version -o json 2>/dev/null | jq -r '.openshiftVersion // "unknown"' 2>/dev/null || echo "unknown")
-if [[ "$OCP_VERSION" != "unknown" ]]; then
-  echo "  ✅ OpenShift $OCP_VERSION"
+if OCP_VERSION=$(oc version -o json 2>/dev/null | jq -r '.openshiftVersion // empty' 2>/dev/null) && [[ -n "$OCP_VERSION" ]]; then
+  echo "  OK OpenShift $OCP_VERSION"
 else
-  echo "  ⚠️  Could not determine OCP version (oc may not be connected)"
+  echo "  WARN Could not determine OCP version (oc may not be connected)"
 fi
 
 echo ""
 
 # 6. Arc connection
 echo "--- Azure Arc Status ---"
-ARC_STATUS=$(az connectedk8s show \
-  -n "$ARC_CLUSTER_NAME" \
-  -g "$ARC_RESOURCE_GROUP" \
-  --query "connectivityStatus" -o tsv 2>/dev/null || echo "NotFound")
-
-if [[ "$ARC_STATUS" == "Connected" ]]; then
-  echo "  ✅ Arc cluster '$ARC_CLUSTER_NAME' is Connected"
+if ARC_STATUS=$(az connectedk8s show -n "$ARC_CLUSTER_NAME" -g "$ARC_RESOURCE_GROUP" --query "connectivityStatus" -o tsv 2>/dev/null); then
+  if [[ "$ARC_STATUS" == "Connected" ]]; then
+    echo "  OK Arc cluster '$ARC_CLUSTER_NAME' is Connected"
+  else
+    echo "  FAIL Arc cluster status: $ARC_STATUS"
+    ERRORS=$((ERRORS + 1))
+  fi
 else
-  echo "  ❌ Arc cluster status: $ARC_STATUS"
-  echo "     Ensure cluster is Arc-connected."
+  echo "  FAIL Arc cluster '$ARC_CLUSTER_NAME' not found in '$ARC_RESOURCE_GROUP'"
   ERRORS=$((ERRORS + 1))
 fi
 
@@ -101,31 +113,35 @@ echo ""
 
 # 7. Required Azure providers
 echo "--- Resource Providers ---"
-PROVIDERS=("Microsoft.Kubernetes" "Microsoft.KubernetesConfiguration" "Microsoft.ExtendedLocation")
-for provider in "${PROVIDERS[@]}"; do
-  STATE=$(az provider show -n "$provider" --query "registrationState" -o tsv 2>/dev/null)
-  if [[ "$STATE" == "Registered" ]]; then
-    echo "  ✅ $provider"
+for provider in Microsoft.Kubernetes Microsoft.KubernetesConfiguration Microsoft.ExtendedLocation; do
+  if STATE=$(az provider show -n "$provider" --query "registrationState" -o tsv 2>/dev/null); then
+    if [[ "$STATE" == "Registered" ]]; then
+      echo "  OK $provider"
+    else
+      echo "  WARN $provider: $STATE (run: az provider register -n $provider)"
+    fi
   else
-    echo "  ⚠️  $provider: $STATE (run: az provider register -n $provider)"
+    echo "  WARN $provider: could not check (az CLI issue)"
   fi
 done
 
 echo ""
 
-# 8. Extension type availability
+# 8. Extension type
 echo "--- Extension Type ---"
 echo "  Extension type: $EXTENSION_TYPE"
-echo "  (Availability can only be verified by attempting install)"
+echo "  (Availability verified during install)"
 
 echo ""
 
 # Summary
+echo "==========================================="
 if [[ $ERRORS -eq 0 ]]; then
-  echo "=== ✅ All prerequisites met ==="
+  echo "  All prerequisites met"
   echo ""
-  echo "Next: Run 01-prep-namespace-scc.sh"
+  echo "  Next: Run 01-prep-namespace-scc.sh"
 else
-  echo "=== ❌ $ERRORS issue(s) found — resolve before proceeding ==="
+  echo "  $ERRORS issue(s) found -- resolve before proceeding"
   exit 1
 fi
+echo "==========================================="
