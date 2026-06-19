@@ -36,14 +36,14 @@ vim env.sh  # fill in subscription, resource group, Arc cluster name, node, etc.
 ./scripts/06-validate-inference.sh   # Port-forward + send inference request
 
 # Optional:
-./scripts/08-e2e-tests.sh            # Full E2E test suite (10 tests)
-./scripts/09-configure-entra-auth.sh # Entra ID authentication setup
+./scripts/07-e2e-tests.sh            # Full E2E test suite (10 tests)
+./scripts/08-configure-entra-auth.sh # Entra ID authentication setup
 ```
 
 ## Uninstall
 
 ```bash
-./scripts/07-uninstall.sh  # Removes extension, SCC grants, CRDs, PVCs; restores default SC
+./scripts/09-uninstall.sh  # Removes extension, SCC grants, CRDs, PVCs; restores default SC
 ```
 
 ## Architecture
@@ -133,8 +133,8 @@ ArcExtension/
 │   ├── 04-install-extension.sh    ← Arc extension install
 │   ├── 05-deploy-model.sh         ← Deploy model from catalog
 │   ├── 06-validate-inference.sh   ← Quick inference validation
-│   ├── 07-uninstall.sh            ← Clean removal
-│   ├── 08-e2e-tests.sh            ← Full E2E test suite (10 tests)
-│   └── 09-configure-entra-auth.sh ← Entra ID authentication setup
+│   ├── 09-uninstall.sh            ← Clean removal
+│   ├── 07-e2e-tests.sh            ← Full E2E test suite (10 tests)
+│   └── 08-configure-entra-auth.sh ← Entra ID authentication setup
 └── manifests/                     ← (Optional YAML manifests for reference)
 ```

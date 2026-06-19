@@ -25,23 +25,26 @@ echo "  Date:       $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "========================================="
 echo ""
 
+# Derive deployment name (same logic as 05-deploy-model.sh)
+DEPLOY_NAME=$(echo "$MODEL_ALIAS" | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+
 # Extract API key
-API_KEY=$(kubectl get secret "inference-operator-api-key" -n "$NAMESPACE" \
-  -o jsonpath='{.data.apiKey}' 2>/dev/null | base64 -d)
+API_KEY=$(kubectl get secret "${DEPLOY_NAME}-api-keys" -n "$NAMESPACE" \
+  -o jsonpath='{.data.primary-key}' 2>/dev/null | base64 -d)
 
 if [[ -z "$API_KEY" ]]; then
-  echo "❌ Could not extract API key"
+  echo "ERROR: Could not extract API key from secret '${DEPLOY_NAME}-api-keys'"
   exit 1
 fi
 
-# Start port-forward
-SVC_NAME="${EXTENSION_NAME}-inference-operator-api"
-LOCAL_PORT=8080
+# Start port-forward to model service
+SVC_NAME="$DEPLOY_NAME"
+LOCAL_PORT=5000
 
-pkill -f "port-forward.*${LOCAL_PORT}:8080" 2>/dev/null || true
+pkill -f "port-forward.*${LOCAL_PORT}:5000" 2>/dev/null || true
 sleep 1
 
-kubectl port-forward "svc/$SVC_NAME" "$LOCAL_PORT:8080" -n "$NAMESPACE" &
+kubectl port-forward "svc/$SVC_NAME" "$LOCAL_PORT:5000" -n "$NAMESPACE" &
 PF_PID=$!
 sleep 3
 
@@ -49,11 +52,11 @@ cleanup() { kill $PF_PID 2>/dev/null || true; }
 trap cleanup EXIT
 
 if ! kill -0 $PF_PID 2>/dev/null; then
-  echo "❌ Port-forward failed"
+  echo "ERROR: Port-forward failed"
   exit 1
 fi
 
-BASE_URL="http://localhost:${LOCAL_PORT}"
+BASE_URL="https://localhost:${LOCAL_PORT}"
 PASSED=0
 FAILED=0
 
@@ -70,11 +73,11 @@ run_test() {
   local start_time=$(date +%s%N)
 
   if [[ "$method" == "GET" ]]; then
-    response=$(curl -s -w "\n%{http_code}" "${BASE_URL}${endpoint}" \
-      -H "Authorization: Bearer ${API_KEY}" 2>/dev/null)
+    response=$(curl -sk -w "\n%{http_code}" "${BASE_URL}${endpoint}" \
+      -H "api-key: ${API_KEY}" 2>/dev/null)
   else
-    response=$(curl -s -w "\n%{http_code}" "${BASE_URL}${endpoint}" \
-      -H "Authorization: Bearer ${API_KEY}" \
+    response=$(curl -sk -w "\n%{http_code}" "${BASE_URL}${endpoint}" \
+      -H "api-key: ${API_KEY}" \
       -H "Content-Type: application/json" \
       -d "$body" 2>/dev/null)
   fi
@@ -127,27 +130,27 @@ echo "  -----|-----------------------------------------------|---------|--------
 
 # Test 1: Basic chat completion
 run_test "Basic Chat Completion" "/v1/chat/completions" "POST" \
-  "{\"model\":\"$MODEL_ALIAS\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2? Answer with just the number.\"}],\"max_tokens\":50}" \
+  "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2? Answer with just the number.\"}],\"max_tokens\":50}" \
   "finish_reason"
 
 # Test 2: System + User prompt
 run_test "System + User Prompt" "/v1/chat/completions" "POST" \
-  "{\"model\":\"$MODEL_ALIAS\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful coding assistant.\"},{\"role\":\"user\",\"content\":\"Write a Python hello world\"}],\"max_tokens\":100}" \
+  "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful coding assistant.\"},{\"role\":\"user\",\"content\":\"Write a Python hello world\"}],\"max_tokens\":100}" \
   "content"
 
 # Test 3: Temperature 0 (deterministic)
 run_test "Temperature 0 (Deterministic)" "/v1/chat/completions" "POST" \
-  "{\"model\":\"$MODEL_ALIAS\",\"messages\":[{\"role\":\"user\",\"content\":\"Say exactly: test123\"}],\"max_tokens\":20,\"temperature\":0}" \
+  "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"Say exactly: test123\"}],\"max_tokens\":20,\"temperature\":0}" \
   "content"
 
 # Test 4: Multi-turn conversation
 run_test "Multi-turn Conversation" "/v1/chat/completions" "POST" \
-  "{\"model\":\"$MODEL_ALIAS\",\"messages\":[{\"role\":\"user\",\"content\":\"My name is Alice\"},{\"role\":\"assistant\",\"content\":\"Hello Alice! Nice to meet you.\"},{\"role\":\"user\",\"content\":\"What is my name?\"}],\"max_tokens\":30}" \
+  "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"My name is Alice\"},{\"role\":\"assistant\",\"content\":\"Hello Alice! Nice to meet you.\"},{\"role\":\"user\",\"content\":\"What is my name?\"}],\"max_tokens\":30}" \
   "Alice"
 
 # Test 5: Max tokens limit (should truncate)
 run_test "Max Tokens Limit (truncation)" "/v1/chat/completions" "POST" \
-  "{\"model\":\"$MODEL_ALIAS\",\"messages\":[{\"role\":\"user\",\"content\":\"Tell me a very long story about dragons\"}],\"max_tokens\":10}" \
+  "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"Tell me a very long story about dragons\"}],\"max_tokens\":10}" \
   "finish_reason"
 
 # Test 6: List models endpoint
@@ -157,18 +160,18 @@ run_test "List Models (GET /v1/models)" "/v1/models" "GET" "" "data"
 SAVED_KEY="$API_KEY"
 API_KEY="invalid-key-12345"
 run_test "Auth — Invalid API Key (expect 401)" "/v1/chat/completions" "POST" \
-  "{\"model\":\"$MODEL_ALIAS\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}],\"max_tokens\":10}" \
+  "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}],\"max_tokens\":10}" \
   "" "true"
 API_KEY="$SAVED_KEY"
 
 # Test 8: Empty messages (expect 400/422)
 run_test "Error — Empty Messages (expect 400)" "/v1/chat/completions" "POST" \
-  "{\"model\":\"$MODEL_ALIAS\",\"messages\":[],\"max_tokens\":10}" \
+  "{\"model\":\"$DEPLOY_NAME\",\"messages\":[],\"max_tokens\":10}" \
   "" "true"
 
 # Test 9: Streaming response
 run_test "Streaming Response" "/v1/chat/completions" "POST" \
-  "{\"model\":\"$MODEL_ALIAS\",\"messages\":[{\"role\":\"user\",\"content\":\"Count from 1 to 5\"}],\"max_tokens\":50,\"stream\":true}" \
+  "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"Count from 1 to 5\"}],\"max_tokens\":50,\"stream\":true}" \
   "data:"
 
 # Test 10: Model catalog check
