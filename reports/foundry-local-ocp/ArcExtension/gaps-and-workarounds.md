@@ -1,8 +1,8 @@
 # Foundry Local on OpenShift — Gaps & Workarounds Report
 
-**Date:** July 2025  
+**Date:** June 2026  
 **Platform:** OpenShift 4.21.2 / Kubernetes v1.34.2 / CRI-O 1.34.5  
-**Install Method:** Azure Arc Extension (`microsoft.foundry`)  
+**Install Method:** Azure Arc Extension (`az k8s-extension create --extension-type microsoft.foundry`)  
 **Status:** ✅ Fully operational with workarounds
 
 ---
@@ -11,7 +11,7 @@
 
 Microsoft Foundry Local's official documentation targets AKS (Azure Kubernetes Service). When deploying on self-hosted OpenShift via the Arc Extension mechanism, **9 gaps** require workarounds. After applying all workarounds, the extension installs successfully, models deploy from the catalog, and inference works end-to-end.
 
-The install is **atomic** (Helm-based) — all workarounds must be applied *before* running `az k8s-extension create`. There is no opportunity to fix issues post-install; a failed install rolls back completely.
+The Arc Extension install is **atomic** — internally, the Arc agent delivers the Foundry components as a single transaction. If any pod fails to start (SCC rejection, PVC can't bind), the entire install rolls back automatically. All workarounds must be applied *before* running `az k8s-extension create`; there is no opportunity to fix issues post-install.
 
 ---
 
@@ -25,7 +25,7 @@ The install is **atomic** (Helm-based) — all workarounds must be applied *befo
 | UID handling | Any UID allowed | Must be within namespace range (e.g., 1000760000–1000769999) |
 | Capabilities | Allowed by default | NET_ADMIN, NET_RAW denied unless explicitly granted |
 
-**Impact:** All Foundry pods fail to start. The extension's Helm install times out and rolls back.
+**Impact:** All Foundry pods fail to start. The extension install times out and rolls back.
 
 **Root cause:** Multiple containers specify hardcoded UIDs outside OCP's namespace range:
 - `inference-operator`: runAsUser=1000, fsGroup=1000
@@ -55,9 +55,9 @@ default
 | `modelStore.storageClassName` config | Respected — sets SC for model-store PVC | **Completely ignored** |
 | PVC binding | Uses specified SC | Always uses cluster default SC |
 
-**Impact:** On clusters where the default SC (e.g., `managed-csi`) doesn't work, the model-store PVC stays Pending → Helm timeout → rollback.
+**Impact:** On clusters where the default SC (e.g., `managed-csi`) doesn't work, the model-store PVC stays Pending → extension timeout → rollback.
 
-**Root cause:** The extension's Helm chart does not template the storageClassName from configuration settings. The PVC spec omits `storageClassName`, causing Kubernetes to use the cluster default.
+**Root cause:** The extension does not template the storageClassName from configuration settings. The PVC spec omits `storageClassName`, causing Kubernetes to use the cluster default.
 
 **Workaround:** Temporarily swap the cluster default StorageClass to one that works (e.g., `local-storage`) before installing the extension.
 
@@ -85,7 +85,7 @@ default
 | Config flag | `global.telemetry.enabled=false` |
 | Effect of flag | Prevents data collection; does NOT prevent pod creation |
 
-**Impact:** Without the flag, telemetry components may fail and block install (atomic Helm release).
+**Impact:** Without the flag, telemetry components may fail and block the extension install (atomic release).
 
 **Workaround:** Set `global.telemetry.enabled=false` as a configuration setting during extension creation. Telemetry pods still run (4 replicas) but don't attempt data export.
 
@@ -113,7 +113,7 @@ default
 
 | State | Cause | Fix |
 |-------|-------|-----|
-| `Released` | PVC deleted during rollback; PV retains stale `claimRef` | Patch PV to remove `/spec/claimRef` |
+| `Released` | PVC deleted during extension rollback; PV retains stale `claimRef` | Patch PV to remove `/spec/claimRef` |
 | `Bound` (to deleted PVC) | Race condition during rapid retry | Same patch |
 
 **Impact:** Subsequent install attempts can't bind the PV even though it has capacity.
@@ -146,7 +146,7 @@ az k8s-extension extension-types list-by-cluster \
 
 ### G8: Model CRD Schema Version — DOCUMENTATION GAP
 
-| Old Schema (Helm v0.260430.8) | Current Schema (Arc Extension) |
+| Old Schema (manual Helm install, pre-June 2026) | Current Schema (Arc Extension) |
 |-------------------------------|-------------------------------|
 | `spec.modelId: "model-name"` | `spec.model.catalog.name: "model-name"` |
 | | `spec.compute: cpu` |
@@ -198,7 +198,7 @@ spec:
 
 ## Recommendations to Foundry Local Team
 
-1. **Template `storageClassName`** — Honor the `modelStore.storageClassName` configuration setting in the Helm chart's PVC spec. This is the single most impactful fix for non-AKS platforms.
+1. **Template `storageClassName`** — Honor the `modelStore.storageClassName` configuration setting in the extension's PVC spec. This is the single most impactful fix for non-AKS platforms.
 
 2. **Reduce SCC requirements** — Consider:
    - Running `msi-adapter` as non-root with reduced capabilities
