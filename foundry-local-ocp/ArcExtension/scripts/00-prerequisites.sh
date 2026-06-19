@@ -139,7 +139,8 @@ echo "==========================================="
 if [[ $ERRORS -eq 0 ]]; then
   echo "  All prerequisites met"
   echo ""
-  echo "  Next: Run ./scripts/01-prep-namespace-scc.sh"
+  echo "  Next: Run ./scripts/01a-prep-arc-azure.sh  (if cluster is NOT yet Arc-connected)"
+  echo "        Run ./scripts/01-prep-namespace-scc.sh  (if already Arc-connected)"
 else
   echo "  $ERRORS issue(s) found -- resolve before proceeding"
   exit 1
