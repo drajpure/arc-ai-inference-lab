@@ -23,7 +23,7 @@ ERRORS=0
 echo "--- CLI Tools ---"
 for tool in az kubectl oc jq curl; do
   if command -v "$tool" &>/dev/null; then
-    VERSION=$("$tool" --version 2>&1 | head -1)
+    VERSION=$("$tool" --version 2>&1 | head -1 || echo "installed")
     echo "  ✅ $tool: $VERSION"
   else
     echo "  ❌ $tool: NOT FOUND"
@@ -35,7 +35,7 @@ echo ""
 
 # 2. Azure CLI login
 echo "--- Azure CLI Auth ---"
-AZ_ACCOUNT=$(az account show --query "{sub:id, tenant:tenantId, name:name}" -o tsv 2>/dev/null)
+AZ_ACCOUNT=$(az account show --query "{sub:id, tenant:tenantId, name:name}" -o tsv 2>/dev/null || true)
 if [[ -n "$AZ_ACCOUNT" ]]; then
   echo "  ✅ Logged in: $AZ_ACCOUNT"
 else
@@ -47,7 +47,7 @@ echo ""
 
 # 3. Correct subscription
 echo "--- Subscription ---"
-CURRENT_SUB=$(az account show --query "id" -o tsv 2>/dev/null)
+CURRENT_SUB=$(az account show --query "id" -o tsv 2>/dev/null || true)
 if [[ "$CURRENT_SUB" == "$SUBSCRIPTION_ID" ]]; then
   echo "  ✅ Active subscription: $SUBSCRIPTION_ID"
 else
@@ -62,7 +62,7 @@ echo ""
 # 4. kubectl connectivity
 echo "--- Kubernetes Connectivity ---"
 if kubectl cluster-info &>/dev/null; then
-  SERVER_VERSION=$(kubectl version -o json 2>/dev/null | jq -r '.serverVersion.gitVersion // "unknown"')
+  SERVER_VERSION=$(kubectl version -o json 2>/dev/null | jq -r '.serverVersion.gitVersion // "unknown"' || echo "unknown")
   echo "  ✅ Connected (K8s $SERVER_VERSION)"
 else
   echo "  ❌ Cannot reach cluster. Check KUBECONFIG."
@@ -73,7 +73,7 @@ echo ""
 
 # 5. OCP version
 echo "--- OpenShift Version ---"
-OCP_VERSION=$(oc version -o json 2>/dev/null | jq -r '.openshiftVersion // "unknown"')
+OCP_VERSION=$(oc version -o json 2>/dev/null | jq -r '.openshiftVersion // "unknown"' 2>/dev/null || echo "unknown")
 if [[ "$OCP_VERSION" != "unknown" ]]; then
   echo "  ✅ OpenShift $OCP_VERSION"
 else
