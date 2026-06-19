@@ -34,14 +34,14 @@ echo "--- Verifying Arc connection ---"
 ARC_STATUS=$(az connectedk8s show \
   -n "$ARC_CLUSTER_NAME" \
   -g "$ARC_RESOURCE_GROUP" \
-  --query "connectivityStatus" -o tsv 2>/dev/null)
+  --query "connectivityStatus" -o tsv 2>/dev/null || echo "Failed")
 
 if [[ "$ARC_STATUS" != "Connected" ]]; then
-  echo "❌ Arc cluster is not Connected (status: ${ARC_STATUS:-unknown})"
+  echo "FAIL: Arc cluster is not Connected (status: ${ARC_STATUS:-unknown})"
   echo "   Run: az connectedk8s show -n $ARC_CLUSTER_NAME -g $ARC_RESOURCE_GROUP"
   exit 1
 fi
-echo "✅ Arc cluster is Connected"
+echo "OK: Arc cluster is Connected"
 echo ""
 
 # Check if extension already exists

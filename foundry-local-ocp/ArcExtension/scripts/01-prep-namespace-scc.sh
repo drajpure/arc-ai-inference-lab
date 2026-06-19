@@ -48,13 +48,34 @@ SERVICE_ACCOUNTS=(
 )
 
 # Pre-create SAs that don't exist yet (so rolebinding can reference them)
+# IMPORTANT: SAs must have Helm ownership labels so the extension can adopt them.
+# Without these, the extension fails with "invalid ownership metadata".
 for sa in "${SERVICE_ACCOUNTS[@]}"; do
   if [[ "$sa" == "default" ]]; then
     continue  # default SA always exists
   fi
   if ! kubectl get serviceaccount "$sa" -n "$NAMESPACE" &>/dev/null; then
-    echo "  Creating SA: $sa"
-    kubectl create serviceaccount "$sa" -n "$NAMESPACE"
+    echo "  Creating SA: $sa (with Helm labels)"
+    kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: $sa
+  namespace: $NAMESPACE
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: $EXTENSION_NAME
+    meta.helm.sh/release-namespace: $NAMESPACE
+EOF
+  else
+    # SA exists — ensure it has Helm labels (may have been created without them)
+    kubectl label serviceaccount "$sa" -n "$NAMESPACE" \
+      app.kubernetes.io/managed-by=Helm --overwrite 2>/dev/null || true
+    kubectl annotate serviceaccount "$sa" -n "$NAMESPACE" \
+      meta.helm.sh/release-name="$EXTENSION_NAME" \
+      meta.helm.sh/release-namespace="$NAMESPACE" --overwrite 2>/dev/null || true
+    echo "  Updated SA: $sa (Helm labels added)"
   fi
 done
 
