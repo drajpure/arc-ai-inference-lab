@@ -63,7 +63,7 @@ echo "Model: $DEPLOY_NAME"
 echo "Prompt: What is 2+2? Answer with just the number."
 echo ""
 
-RESPONSE=$(curl -s "http://localhost:${LOCAL_PORT}/v1/chat/completions" \
+RESPONSE=$(curl -sk "https://localhost:${LOCAL_PORT}/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $API_KEY" \
   -d "{
