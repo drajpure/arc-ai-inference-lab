@@ -110,4 +110,4 @@ kubectl get pods -n azure-arc --no-headers | head -10
 echo ""
 echo "✅ Cluster connected to Azure Arc."
 echo ""
-echo "Next: Run 01-prep-namespace-scc.sh"
+echo "Next: Run ./scripts/01-prep-namespace-scc.sh"

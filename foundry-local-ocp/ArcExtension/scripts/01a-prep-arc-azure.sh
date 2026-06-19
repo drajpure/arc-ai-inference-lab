@@ -76,4 +76,4 @@ fi
 echo ""
 echo "=== Azure-side prep complete ==="
 echo ""
-echo "Next: Run 01b-connect-arc.sh (requires KUBECONFIG to your OCP cluster)"
+echo "Next: Run ./scripts/01b-connect-arc.sh (requires KUBECONFIG to your OCP cluster)"

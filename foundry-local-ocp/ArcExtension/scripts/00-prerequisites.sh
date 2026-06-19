@@ -139,7 +139,7 @@ echo "==========================================="
 if [[ $ERRORS -eq 0 ]]; then
   echo "  All prerequisites met"
   echo ""
-  echo "  Next: Run 01-prep-namespace-scc.sh"
+  echo "  Next: Run ./scripts/01-prep-namespace-scc.sh"
 else
   echo "  $ERRORS issue(s) found -- resolve before proceeding"
   exit 1

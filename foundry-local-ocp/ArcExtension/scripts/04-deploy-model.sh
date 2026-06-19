@@ -92,4 +92,4 @@ if [[ $ELAPSED -ge $MAX_WAIT ]]; then
 fi
 
 echo ""
-echo "Next: Run 05-validate-inference.sh"
+echo "Next: Run ./scripts/05-validate-inference.sh"

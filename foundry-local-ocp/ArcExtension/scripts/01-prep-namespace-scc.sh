@@ -105,4 +105,4 @@ echo "  - inference-operator-api: msi-adapter init runs as root with NET_ADMIN/N
 echo "  - telemetry-collector: msi-adapter init runs as root with NET_ADMIN/NET_RAW"
 echo "  - model-store: runAsUser=1000, fsGroup=1000"
 echo ""
-echo "Next: Run 02-install-extension.sh"
+echo "Next: Run ./scripts/02-prep-storage.sh"
