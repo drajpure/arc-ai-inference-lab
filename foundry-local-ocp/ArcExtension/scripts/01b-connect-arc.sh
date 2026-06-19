@@ -11,7 +11,13 @@
 # - https://learn.microsoft.com/azure/azure-arc/kubernetes/troubleshooting#unable-to-connect-openshift-cluster-to-azure-arc
 
 set -euo pipefail
-source "$(dirname "$0")/../env.sh"
+
+ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/env.sh"
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "❌ env.sh not found. Copy env.sh.example to env.sh and fill in your values."
+  exit 1
+fi
+source "$ENV_FILE"
 
 echo "=== Connecting OpenShift cluster to Azure Arc ==="
 echo "  Arc RG:       $ARC_RESOURCE_GROUP"

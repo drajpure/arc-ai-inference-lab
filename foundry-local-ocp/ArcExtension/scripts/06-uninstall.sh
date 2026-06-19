@@ -16,7 +16,13 @@
 #   - Arc connectivity (az connectedk8s)
 
 set -euo pipefail
-source "$(dirname "$0")/../env.sh"
+
+ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/env.sh"
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "❌ env.sh not found. Copy env.sh.example to env.sh and fill in your values."
+  exit 1
+fi
+source "$ENV_FILE"
 
 echo "=== Uninstalling Foundry Local ==="
 echo ""

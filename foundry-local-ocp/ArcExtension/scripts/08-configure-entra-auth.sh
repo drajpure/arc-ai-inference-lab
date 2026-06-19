@@ -22,7 +22,13 @@
 # Re-run safe: all operations are idempotent.
 
 set -euo pipefail
-source "$(dirname "$0")/../env.sh"
+
+ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/env.sh"
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "❌ env.sh not found. Copy env.sh.example to env.sh and fill in your values."
+  exit 1
+fi
+source "$ENV_FILE"
 
 # === Entra Auth Configuration ===
 ENTRA_APP_NAME="${ENTRA_APP_NAME:-FoundryLocal-${ARC_CLUSTER_NAME}}"

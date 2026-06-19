@@ -4,7 +4,15 @@
 # Run this first to catch missing tools or configuration early.
 
 set -euo pipefail
-source "$(dirname "$0")/../env.sh"
+
+ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/env.sh"
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "❌ env.sh not found at: $ENV_FILE"
+  echo "   Copy env.sh.example to env.sh and fill in your values:"
+  echo "   cp $(dirname "$ENV_FILE")/env.sh.example $(dirname "$ENV_FILE")/env.sh"
+  exit 1
+fi
+source "$ENV_FILE"
 
 echo "=== Checking Prerequisites ==="
 echo ""

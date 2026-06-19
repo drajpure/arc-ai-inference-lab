@@ -8,7 +8,13 @@
 # the entire release rolls back. So SCC grants must be in place first.
 
 set -euo pipefail
-source "$(dirname "$0")/../env.sh"
+
+ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/env.sh"
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "❌ env.sh not found. Copy env.sh.example to env.sh and fill in your values."
+  exit 1
+fi
+source "$ENV_FILE"
 
 echo "=== Step 1: Ensure namespace exists ==="
 if kubectl get namespace "$NAMESPACE" &>/dev/null; then
