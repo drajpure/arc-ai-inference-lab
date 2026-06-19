@@ -38,6 +38,8 @@ if kubectl get modeldeployment "$DEPLOY_NAME" -n "$NAMESPACE" &>/dev/null; then
   echo "ModelDeployment '$DEPLOY_NAME' already exists (Ready=$READY)"
   if [[ "$READY" == "True" ]]; then
     echo "OK Model is already deployed and ready."
+    echo ""
+    echo "Next: Run ./scripts/06-validate-inference.sh"
     exit 0
   fi
   echo "   Waiting for it to become ready..."
