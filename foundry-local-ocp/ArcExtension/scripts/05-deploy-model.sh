@@ -34,7 +34,7 @@ fi
 # Check if deployment already exists
 if kubectl get modeldeployment "$DEPLOY_NAME" -n "$NAMESPACE" &>/dev/null; then
   READY=$(kubectl get modeldeployment "$DEPLOY_NAME" -n "$NAMESPACE" \
-    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+    -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null)
   echo "ModelDeployment '$DEPLOY_NAME' already exists (Ready=$READY)"
   if [[ "$READY" == "True" ]]; then
     echo "OK Model is already deployed and ready."
@@ -70,7 +70,7 @@ INTERVAL=15
 
 while [[ $ELAPSED -lt $MAX_WAIT ]]; do
   READY=$(kubectl get modeldeployment "$DEPLOY_NAME" -n "$NAMESPACE" \
-    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+    -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null)
 
   if [[ "$READY" == "True" ]]; then
     echo ""
@@ -81,7 +81,7 @@ while [[ $ELAPSED -lt $MAX_WAIT ]]; do
   fi
 
   MESSAGE=$(kubectl get modeldeployment "$DEPLOY_NAME" -n "$NAMESPACE" \
-    -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null)
+    -o jsonpath='{.status.conditions[?(@.type=="Available")].message}' 2>/dev/null)
   printf "  [%3ds] Ready=%s Message=%s\n" "$ELAPSED" "${READY:-Unknown}" "${MESSAGE:-Pending}"
 
   sleep $INTERVAL
