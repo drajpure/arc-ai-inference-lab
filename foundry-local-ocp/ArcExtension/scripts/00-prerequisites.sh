@@ -97,16 +97,16 @@ echo ""
 
 # 6. Arc connection
 echo "--- Azure Arc Status ---"
+ARC_CONNECTED=false
 if ARC_STATUS=$(az connectedk8s show -n "$ARC_CLUSTER_NAME" -g "$ARC_RESOURCE_GROUP" --query "connectivityStatus" -o tsv 2>/dev/null); then
   if [[ "$ARC_STATUS" == "Connected" ]]; then
     echo "  OK Arc cluster '$ARC_CLUSTER_NAME' is Connected"
+    ARC_CONNECTED=true
   else
-    echo "  FAIL Arc cluster status: $ARC_STATUS"
-    ERRORS=$((ERRORS + 1))
+    echo "  WARN Arc cluster status: $ARC_STATUS (run ./scripts/01a-prep-arc-azure.sh then 01b-connect-arc.sh)"
   fi
 else
-  echo "  FAIL Arc cluster '$ARC_CLUSTER_NAME' not found in '$ARC_RESOURCE_GROUP'"
-  ERRORS=$((ERRORS + 1))
+  echo "  WARN Arc cluster '$ARC_CLUSTER_NAME' not found — will need ./scripts/01a-prep-arc-azure.sh + 01b-connect-arc.sh"
 fi
 
 echo ""
@@ -139,8 +139,11 @@ echo "==========================================="
 if [[ $ERRORS -eq 0 ]]; then
   echo "  All prerequisites met"
   echo ""
-  echo "  Next: Run ./scripts/01a-prep-arc-azure.sh  (if cluster is NOT yet Arc-connected)"
-  echo "        Run ./scripts/01-prep-namespace-scc.sh  (if already Arc-connected)"
+  if [[ "$ARC_CONNECTED" == "true" ]]; then
+    echo "  Next: Run ./scripts/01-prep-namespace-scc.sh"
+  else
+    echo "  Next: Run ./scripts/01a-prep-arc-azure.sh  (Arc not connected yet)"
+  fi
 else
   echo "  $ERRORS issue(s) found -- resolve before proceeding"
   exit 1
