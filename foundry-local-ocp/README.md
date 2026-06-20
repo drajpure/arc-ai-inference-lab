@@ -1,8 +1,22 @@
 # Foundry Local on Self-Hosted OpenShift (OCP)
 
-Deploy **Microsoft Foundry Local** on a self-hosted OpenShift cluster connected to Azure Arc. Two installation methods are provided — choose the one that fits your scenario.
+Deploy **Microsoft Foundry Local** on a self-hosted OpenShift cluster connected to Azure Arc.
 
-## Installation Methods
+## Step 1: Provision OCP Cluster
+
+> **Already have an OCP cluster?** Skip to Step 2.
+
+| | [Provision OCP](provision-ocp/) |
+|---|---|
+| **What** | Self-hosted OpenShift on Azure via IPI |
+| **Time** | ~45 min |
+| **Script** | `00-provision-ocp.sh` |
+
+👉 **[Provisioning guide →](provision-ocp/README.md)**
+
+## Step 2: Install Foundry Local
+
+Choose your installation method:
 
 | | [Arc Extension](arc-extension/) | [Helm Standalone](helm-standalone/) |
 |---|---|---|
@@ -11,11 +25,9 @@ Deploy **Microsoft Foundry Local** on a self-hosted OpenShift cluster connected 
 | **Updates** | Auto-update via Arc | Manual Helm upgrade |
 | **Azure portal** | Extension visible in Arc resource | Not visible |
 | **Best for** | Production / managed deployments | Dev / air-gapped / custom |
-| **Scripts** | 10 scripts (00–09) | 10 scripts (00–09) |
+| **Scripts** | 10 scripts (00–09) | 9 scripts (01–09) |
 
 ### Arc Extension (Recommended)
-
-The Arc Extension approach uses `az k8s-extension create --extension-type microsoft.foundry` to install Foundry Local. The Arc Extension Manager handles Helm chart installation, upgrades, and health monitoring automatically.
 
 ```bash
 cd arc-extension
@@ -28,12 +40,10 @@ cp env.sh.example env.sh && vim env.sh
 
 ### Helm Standalone
 
-Direct Helm chart installation with full control over operator version, cert-manager, and trust-manager. Useful for development, air-gapped environments, or when you need custom Helm values.
-
 ```bash
 cd helm-standalone
 cp env.sh.example env.sh && vim env.sh
-./scripts/00-provision-ocp.sh   # or skip if cluster exists
+./scripts/01-prep-arc-azure.sh   # starts at Arc onboarding
 # Follow the numbered scripts
 ```
 

@@ -18,7 +18,10 @@ Validate that AI inference platforms (Foundry Local, and others) can be deployed
 arc-ai-inference-lab/
 ├── README.md
 └── foundry-local-ocp/
-    ├── README.md                    # Comparison of both install methods
+    ├── README.md                    # Overview — provision + install method comparison
+    ├── provision-ocp/               # Provision self-hosted OCP on Azure (shared)
+    │   ├── scripts/
+    │   └── README.md
     ├── arc-extension/               # Arc Extension install (recommended)
     │   ├── scripts/
     │   ├── env.sh.example
