@@ -139,15 +139,35 @@ kubectl get pods -n "$NAMESPACE" -o json | jq -r '
 # =========================================================
 next_step
 print_step "Step 3: Model catalog & available models" \
-"Foundry Local catalog — hardware-compatible models for this cluster"
+"Foundry Local catalog is loaded with model definitions"
 
-show_cmd "kubectl get storemodels -n \$NAMESPACE"
+show_cmd "kubectl get configmap foundry-local-catalog -n \$NAMESPACE ... | jq '.models | length'"
 echo ""
-kubectl get storemodels -n "$NAMESPACE"
-echo ""
-CATALOG_COUNT=$(kubectl get storemodels -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)
-echo "📦 Models available for deployment: $CATALOG_COUNT"
-echo "   (Arc Extension surfaces only models compatible with node hardware)"
+CATALOG_COUNT=$(kubectl get configmap foundry-local-catalog \
+  -n "$NAMESPACE" \
+  -o jsonpath='{.data.catalog\.json}' 2>/dev/null | jq '.models | length' 2>/dev/null || echo "0")
+
+if [[ "$CATALOG_COUNT" -gt 0 ]]; then
+  echo "📦 Total models in catalog: $CATALOG_COUNT"
+  echo ""
+  read -p "👉 List all model names? (y/n): " LIST_MODELS
+  if [[ "${LIST_MODELS,,}" == "y" ]]; then
+    echo ""
+    show_cmd "... | jq -r '.models[] | .id // .modelId // .displayName // .name'"
+    kubectl get configmap foundry-local-catalog \
+      -n "$NAMESPACE" \
+      -o jsonpath='{.data.catalog\.json}' | jq -r '.models[] | .id // .modelId // .displayName // .name // "unknown"' | sort | nl
+  else
+    echo "⏭️  Skipped model listing."
+  fi
+else
+  echo "⚠️  ConfigMap 'foundry-local-catalog' not found — showing storemodels instead:"
+  echo ""
+  kubectl get storemodels -n "$NAMESPACE"
+  CATALOG_COUNT=$(kubectl get storemodels -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)
+  echo ""
+  echo "📦 Models available for deployment: $CATALOG_COUNT"
+fi
 
 # =========================================================
 # STEP 4: Deployed model status
