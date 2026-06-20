@@ -139,21 +139,15 @@ kubectl get pods -n "$NAMESPACE" -o json | jq -r '
 # =========================================================
 next_step
 print_step "Step 3: Model catalog & available models" \
-"Foundry Local full catalog + hardware-compatible models"
+"Foundry Local catalog — hardware-compatible models for this cluster"
 
-show_cmd "kubectl get models -n \$NAMESPACE"
+show_cmd "kubectl get storemodels -n \$NAMESPACE"
 echo ""
-echo "--- Full Model Catalog ---"
-kubectl get models -n "$NAMESPACE"
-echo ""
-CATALOG_COUNT=$(kubectl get models -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)
-echo "📦 Total models in catalog: $CATALOG_COUNT"
-echo ""
-echo "--- Hardware-Compatible (deployable on this cluster) ---"
 kubectl get storemodels -n "$NAMESPACE"
 echo ""
-STORE_COUNT=$(kubectl get storemodels -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)
-echo "📦 Deployable models (matching node hardware): $STORE_COUNT"
+CATALOG_COUNT=$(kubectl get storemodels -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)
+echo "📦 Models available for deployment: $CATALOG_COUNT"
+echo "   (Arc Extension surfaces only models compatible with node hardware)"
 
 # =========================================================
 # STEP 4: Deployed model status
