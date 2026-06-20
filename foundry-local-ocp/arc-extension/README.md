@@ -124,7 +124,7 @@ With `--name foundrylocal` (default in env.sh.example), the prefixed SAs become:
 arc-extension/
 ├── README.md                      ← This file
 ├── env.sh.example                 ← Template — copy to env.sh
-├── gaps-and-workarounds.md        ← Detailed gap analysis report
+├── validation-report.md        ← Full validation report with findings
 └── scripts/
     ├── 00-prerequisites.sh        ← Verify tools & connectivity
     ├── 01-connect-arc.sh          ← Azure prep + connect OCP to Arc
