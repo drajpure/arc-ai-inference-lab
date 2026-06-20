@@ -217,12 +217,16 @@ next_step
 print_step "Step 8: Basic reasoning test" \
 "Prompt: What is 2+2? → Validates inference"
 
-show_cmd "curl -sk https://localhost:5000/v1/chat/completions -H 'api-key: ...' -d '{\"model\":\"$DEPLOYMENT_NAME\",...}'"
+CMD='curl -sk https://localhost:5000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '"'"'{"model":"qwen2.5-coder-0.5b","messages":[{"role":"user","content":"What is 2+2?"}]}'"'"
+show_cmd "$CMD"
 
 RESP=$(curl -sk https://localhost:5000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "api-key: $API_KEY" \
-  -d "{\"model\":\"$DEPLOYMENT_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}]}")
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"model":"qwen2.5-coder-0.5b","messages":[{"role":"user","content":"What is 2+2?"}]}')
 
 echo ""
 echo "📨 PROMPT: What is 2+2?"
@@ -239,12 +243,16 @@ next_step
 print_step "Step 9: Code generation" \
 "Prompt: Write a Python hello world → Dev scenario"
 
-show_cmd "curl -sk https://localhost:5000/v1/chat/completions -H 'api-key: ...' -d '{\"model\":\"$DEPLOYMENT_NAME\",...}'"
+CMD='curl -sk https://localhost:5000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '"'"'{"model":"qwen2.5-coder-0.5b","messages":[{"role":"user","content":"Write a Python hello world script"}]}'"'"
+show_cmd "$CMD"
 
 RESP=$(curl -sk https://localhost:5000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "api-key: $API_KEY" \
-  -d "{\"model\":\"$DEPLOYMENT_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"Write a Python hello world script\"}]}")
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"model":"qwen2.5-coder-0.5b","messages":[{"role":"user","content":"Write a Python hello world script"}]}')
 
 echo ""
 echo "📨 PROMPT: Write a Python hello world script"
@@ -261,12 +269,16 @@ next_step
 print_step "Step 10: Deterministic output" \
 "Prompt: Say exactly test123 (temperature=0) → Validates control"
 
-show_cmd "curl -sk https://localhost:5000/v1/chat/completions -H 'api-key: ...' -d '{\"model\":\"$DEPLOYMENT_NAME\",\"temperature\":0,...}'"
+CMD='curl -sk https://localhost:5000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '"'"'{"model":"qwen2.5-coder-0.5b","temperature":0,"messages":[{"role":"user","content":"Say exactly: test123"}]}'"'"
+show_cmd "$CMD"
 
 RESP=$(curl -sk https://localhost:5000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "api-key: $API_KEY" \
-  -d "{\"model\":\"$DEPLOYMENT_NAME\",\"temperature\":0,\"messages\":[{\"role\":\"user\",\"content\":\"Say exactly: test123\"}]}")
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"model":"qwen2.5-coder-0.5b","temperature":0,"messages":[{"role":"user","content":"Say exactly: test123"}]}')
 
 echo ""
 echo "📨 PROMPT: Say exactly: test123"
@@ -283,12 +295,16 @@ next_step
 print_step "Step 11: Multi-turn conversation" \
 "Prompt: Alice context → Validates memory"
 
-show_cmd "curl -sk https://localhost:5000/v1/chat/completions -H 'api-key: ...' -d '{\"model\":\"$DEPLOYMENT_NAME\",...}'"
+CMD='curl -sk https://localhost:5000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '"'"'{"model":"qwen2.5-coder-0.5b","messages":[{"role":"user","content":"My name is Alice"},{"role":"assistant","content":"Hello Alice!"},{"role":"user","content":"What is my name?"}]}'"'"
+show_cmd "$CMD"
 
 RESP=$(curl -sk https://localhost:5000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "api-key: $API_KEY" \
-  -d "{\"model\":\"$DEPLOYMENT_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"My name is Alice\"},{\"role\":\"assistant\",\"content\":\"Hello Alice!\"},{\"role\":\"user\",\"content\":\"What is my name?\"}]}")
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"model":"qwen2.5-coder-0.5b","messages":[{"role":"user","content":"My name is Alice"},{"role":"assistant","content":"Hello Alice!"},{"role":"user","content":"What is my name?"}]}')
 
 echo ""
 echo "📨 PROMPT: [User: My name is Alice] → [Assistant: Hello Alice!] → [User: What is my name?]"
@@ -305,12 +321,16 @@ next_step
 print_step "Step 12: Security validation" \
 "Invalid API key → Should return 401"
 
-show_cmd "curl -sk https://localhost:5000/v1/chat/completions -H 'api-key: invalid_key' -d '{...}'"
+CMD='curl -sk https://localhost:5000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer invalid_key" \
+  -d '"'"'{"model":"qwen2.5-coder-0.5b","messages":[{"role":"user","content":"test"}]}'"'"
+show_cmd "$CMD"
 
 RESP=$(curl -sk https://localhost:5000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "api-key: invalid_key" \
-  -d "{\"model\":\"$DEPLOYMENT_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}]}")
+  -H "Authorization: Bearer invalid_key" \
+  -d '{"model":"qwen2.5-coder-0.5b","messages":[{"role":"user","content":"test"}]}')
 
 echo ""
 echo "📦 RESPONSE:"
