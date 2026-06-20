@@ -1,164 +1,189 @@
-# Foundry Local on OpenShift — Gaps & Workarounds Report
+# Foundry Local on Self-Hosted OpenShift (Arc Extension) — Validation Report
 
-**Date:** June 2026  
-**Platform:** OpenShift 4.21.2 / Kubernetes v1.34.2 / CRI-O 1.34.5  
-**Install Method:** Azure Arc Extension (`az k8s-extension create --extension-type microsoft.foundry`)  
-**Status:** ✅ Fully operational with workarounds
+Status: **validated end-to-end. Inference round-trip succeeded against `qwen2.5-coder-0.5b` (HTTP 200, TLS, API-key auth).**
+
+This report summarizes the outcome of deploying Foundry Local via the Azure Arc Extension mechanism (`az k8s-extension create --extension-type microsoft.foundry`) on a self-hosted OpenShift Container Platform (UPI install on Azure).
+
+## Reference Documentation
+
+| Document | URL |
+|----------|-----|
+| Deploy Foundry Local Arc Extension | https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/deploy-foundry-local-arc-extension |
+| What is Foundry Local on Azure Local | https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/what-is-foundry-local-on-azure-local |
+| Configure Authentication | https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/how-to-configure-authentication |
+| Inference Operator Concepts | https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/concept-inference-operator |
+| Supported Regions | https://learn.microsoft.com/azure/azure-sovereign-clouds/private/foundry-local/what-is-foundry-local-on-azure-local#supported-regions |
+| Preview Access Request | https://aka.ms/FoundryLocalAzure_PreviewRequest |
+| Azure Arc-enabled Kubernetes | https://learn.microsoft.com/azure/azure-arc/kubernetes/overview |
+| Arc OpenShift Troubleshooting | https://learn.microsoft.com/azure/azure-arc/kubernetes/troubleshooting#unable-to-connect-openshift-cluster-to-azure-arc |
+| Foundry Local on ARO — Validation Report (Reference) | https://github.com/weinong/foundry-local-on-aro/blob/main/docs/validation-report.md |
 
 ---
 
-## Executive Summary
+## Environment
 
-Microsoft Foundry Local's official documentation targets AKS (Azure Kubernetes Service). When deploying on self-hosted OpenShift via the Arc Extension mechanism, **9 gaps** require workarounds. After applying all workarounds, the extension installs successfully, models deploy from the catalog, and inference works end-to-end.
-
-The Arc Extension install is **atomic** — internally, the Arc agent delivers the Foundry components as a single transaction. If any pod fails to start (SCC rejection, PVC can't bind), the entire install rolls back automatically. All workarounds must be applied *before* running `az k8s-extension create`; there is no opportunity to fix issues post-install.
+| Item | Value |
+|------|-------|
+| OpenShift version | 4.21.2 |
+| OpenShift Kubernetes | v1.34.2 |
+| Container runtime | cri-o://1.34.5 |
+| OS | Red Hat Enterprise Linux CoreOS 9.6 |
+| Region | Azure (UPI — IPI-like topology) |
+| Node pool | 3 × combined master+worker (Standard_D8s_v3) |
+| Arc agent version | 1.34.2 |
+| Arc connectivity | Connected (`distributionVersion=4.21`) |
+| Install method | `az k8s-extension create --extension-type microsoft.foundry` |
+| Extension name | `foundrylocal` |
+| Validation model | `qwen2.5-coder-0.5b` (ONNX, CPU, ~862 MB) |
+| Subscription | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+| Resource Group | `rg-openshift-arc` |
+| Connected Cluster | `ocp-cluster-arc` |
 
 ---
 
-## Gap Analysis
+## Phase Results
 
-### G1: SecurityContextConstraints (SCC) — BLOCKING
+| Phase | Action | Result |
+|-------|--------|--------|
+| OCP Cluster | Provisioned via UPI (IPI-like topology on Azure) | ✅ OK — 3 nodes Ready |
+| Arc Connect | `az connectedk8s connect --distribution openshift` | ✅ OK — `connectivityStatus=Connected` |
+| Pre-create SAs | Helm-labeled ServiceAccounts with `privileged` SCC | ✅ OK — 6 SAs with correct ownership metadata |
+| Storage prep | Swap default SC to `local-storage` + hostPath PV | ✅ OK — PV Available, 100Gi |
+| Extension install | `az k8s-extension create --extension-type microsoft.foundry` | ✅ OK — provisioningState: Succeeded |
+| Pod health | All operator pods Running | ✅ OK — operator 3/3, api 5/5, store 2/2, telemetry 4/4 |
+| Model catalog | StoreModels CRD populated | ✅ OK — hardware-filtered (1 CPU model on CPU-only cluster) |
+| Model deployment | `qwen2-5-coder-0-5b` via ModelDeployment CR | ✅ OK — Available=True, 5/5 Running |
+| Inference call | HTTPS POST to `/v1/chat/completions` with API key | ✅ OK — HTTP 200, correct response |
+
+---
+
+## Inference Validation — 2026-06-19
+
+```
+- Model alias: qwen2.5-coder-0.5b
+- Deployment name: qwen2-5-coder-0-5b (DNS-1035 sanitized)
+- CRD: modeldeployments.foundrylocal.azure.com/v1
+- Compute: cpu, runtime: onnx
+- Pod replicas: 5/5 Running
+- Inference HTTP status: 200
+- Protocol: HTTPS (self-signed TLS on port 5000)
+- Auth: api-key header (from secret <deploy-name>-api-keys, field primary-key)
+- Sample prompt: "What is 2+2?"
+- Sample answer: "4"
+```
+
+---
+
+## OpenShift Divergences from the AKS-Validated Path
+
+### D1. SCC Enforcement — All Foundry Pods Require `privileged` SCC
 
 | Aspect | AKS Behavior | OCP Behavior |
 |--------|-------------|--------------|
-| Pod security | PSA (warn/audit only in most namespaces) | SCC enforced — `restricted-v2` by default |
-| UID handling | Any UID allowed | Must be within namespace range (e.g., 1000760000–1000769999) |
+| Pod security | PSA (warn/audit only) | SCC enforced — `restricted-v2` by default |
+| UID handling | Any UID allowed | Must be within namespace range (1000760000+) |
 | Capabilities | Allowed by default | NET_ADMIN, NET_RAW denied unless explicitly granted |
 
-**Impact:** All Foundry pods fail to start. The extension install times out and rolls back.
+**Impact:** All Foundry pods fail to start. The extension install is **atomic** — entire Helm release rolls back on any pod failure.
 
 **Root cause:** Multiple containers specify hardcoded UIDs outside OCP's namespace range:
 - `inference-operator`: runAsUser=1000, fsGroup=1000
 - `model-store`: runAsUser=1000, fsGroup=1000
-- `msi-adapter` init container (in operator-api, telemetry): runAsUser=0, NET_ADMIN, NET_RAW
+- `msi-adapter` init container: runAsUser=0, NET_ADMIN, NET_RAW
 
-**Workaround:** Pre-grant `privileged` SCC to all 6 ServiceAccounts before extension install.
+**Workaround:** Pre-create all 6 ServiceAccounts with Helm ownership labels AND `privileged` SCC grants BEFORE extension install:
+```bash
+# SAs must have these labels/annotations for Helm to accept them:
+app.kubernetes.io/managed-by: Helm
+meta.helm.sh/release-name: foundrylocal
+meta.helm.sh/release-namespace: foundry-local-operator
 
-**Why `privileged` and not `anyuid`?** The `msi-adapter` init container runs as root (UID 0) and requests `NET_ADMIN` + `NET_RAW` capabilities for iptables rules. `anyuid` only relaxes the UID constraint, not capabilities.
-
-**Affected SAs (predictable from `--name` parameter):**
-```
-<extension-name>-inference-operator
-<extension-name>-inference-operator-api
-<extension-name>-inference-operator-catalog-sync
-foundry-config-reader
-inference-operator-crd-update
-default
+# Then grant SCC:
+oc adm policy add-scc-to-user privileged -z <sa-name> -n foundry-local-operator
 ```
 
----
+**Affected SAs (derived from `--name foundrylocal`):**
+- `foundrylocal-inference-operator`
+- `foundrylocal-inference-operator-api`
+- `foundrylocal-inference-operator-catalog-sync`
+- `foundry-config-reader`
+- `inference-operator-crd-update`
+- `default`
 
-### G2: StorageClass Configuration Ignored — BLOCKING
+### D2. StorageClass Configuration Ignored — Extension Always Uses Default
 
-| Aspect | Expected | Actual |
-|--------|----------|--------|
-| `modelStore.storageClassName` config | Respected — sets SC for model-store PVC | **Completely ignored** |
-| PVC binding | Uses specified SC | Always uses cluster default SC |
+| Expected | Actual |
+|----------|--------|
+| `modelStore.storageClassName` config respected | **Completely ignored** — PVC uses cluster default |
 
-**Impact:** On clusters where the default SC (e.g., `managed-csi`) doesn't work, the model-store PVC stays Pending → extension timeout → rollback.
+**Impact:** If default SC (e.g., `managed-csi`) doesn't work, model-store PVC stays Pending → extension timeout → rollback.
 
-**Root cause:** The extension does not template the storageClassName from configuration settings. The PVC spec omits `storageClassName`, causing Kubernetes to use the cluster default.
+**Workaround:** Temporarily swap the cluster default StorageClass to `local-storage` before installing:
+```bash
+# Remove default from existing SC
+kubectl annotate sc managed-csi storageclass.kubernetes.io/is-default-class- --overwrite
+# Set local-storage as default
+kubectl annotate sc local-storage storageclass.kubernetes.io/is-default-class=true
+```
 
-**Workaround:** Temporarily swap the cluster default StorageClass to one that works (e.g., `local-storage`) before installing the extension.
+### D3. Azure Disk CSI Non-Functional (UPI / Manual Credentials)
 
----
+| IPI Cluster | UPI (credentialsMode: Manual) |
+|------------|-------------------------------|
+| CSI works (credentials auto-injected) | Fails: `CredentialTypeNotAllowedAsPerAppPolicy` |
 
-### G3: Azure Disk CSI on UPI/Manual Credential Clusters — BLOCKING (environment-specific)
+**Workaround:** Use local-storage (hostPath PV with node affinity):
+1. StorageClass: `local-storage` (no provisioner)
+2. PersistentVolume: 100Gi hostPath at `/var/foundry-models`
+3. Create directory on target node
 
-| Aspect | IPI Cluster | UPI (credentialsMode: Manual) |
-|--------|------------|-------------------------------|
-| Azure Disk CSI | Works (credentials auto-injected) | Fails: `CredentialTypeNotAllowedAsPerAppPolicy` |
+### D4. OTEL Telemetry Collector Bug
 
-**Impact:** If the cluster uses `credentialsMode: Manual` without pre-seeded cloud credentials, the `managed-csi` StorageClass cannot provision volumes.
+**Symptom:** Image pull failures or crash loops in telemetry pods without workaround.
 
-**Root cause:** The Azure Disk CSI driver requires AAD credentials to call Azure Storage APIs. In Manual mode, these aren't automatically provisioned.
+**Workaround:** Set `global.telemetry.enabled=false` as extension configuration:
+```bash
+az k8s-extension create ... \
+  --configuration-settings "global.telemetry.enabled=false"
+```
+Telemetry pods still run (4 replicas) but don't attempt data export. Known bug per Foundry team.
 
-**Workaround:** Use local-storage (hostPath PV with node affinity) instead of Azure Disk.
+### D5. PV Lifecycle After Failed Install Attempts
 
----
+After a failed install → rollback, the PV transitions to `Released` state (stale claimRef). Subsequent installs can't bind it.
 
-### G4: OTEL Telemetry Collector Bug — PARTIALLY BLOCKING
-
-| Aspect | Detail |
-|--------|--------|
-| Symptom | Image pull failures or crash loops in telemetry pods |
-| Config flag | `global.telemetry.enabled=false` |
-| Effect of flag | Prevents data collection; does NOT prevent pod creation |
-
-**Impact:** Without the flag, telemetry components may fail and block the extension install (atomic release).
-
-**Workaround:** Set `global.telemetry.enabled=false` as a configuration setting during extension creation. Telemetry pods still run (4 replicas) but don't attempt data export.
-
-**Note:** This was confirmed as a known bug by the Foundry team. The workaround is officially recommended.
-
----
-
-### G5: No Dynamic Provisioner for Local Storage — BLOCKING (when G3 applies)
-
-| Aspect | AKS | OCP UPI |
-|--------|-----|---------|
-| Default SC | `managed-csi` with dynamic provisioner | `managed-csi` (may be broken per G3) |
-| Local-storage | Not needed | No provisioner — requires manual PV |
-
-**Impact:** Even after creating a `local-storage` StorageClass, PVCs remain Pending because there's no provisioner to create PVs dynamically.
-
-**Workaround:** Manually create:
-1. StorageClass (`local-storage`, `kubernetes.io/no-provisioner`)
-2. PersistentVolume (100Gi, hostPath, node affinity to specific node)
-3. Host directory on the target node
-
----
-
-### G6: PV Lifecycle After Failed Installs — OPERATIONAL
-
-| State | Cause | Fix |
-|-------|-------|-----|
-| `Released` | PVC deleted during extension rollback; PV retains stale `claimRef` | Patch PV to remove `/spec/claimRef` |
-| `Bound` (to deleted PVC) | Race condition during rapid retry | Same patch |
-
-**Impact:** Subsequent install attempts can't bind the PV even though it has capacity.
-
-**Workaround:** Before each install attempt, verify PV is in `Available` state. If `Released`, clear the claimRef:
+**Workaround:** Clear claimRef before retry:
 ```bash
 kubectl patch pv <name> --type=json -p '[{"op":"remove","path":"/spec/claimRef"}]'
 ```
 
----
-
-### G7: Extension Type Discovery — DOCUMENTATION GAP
+### D6. Extension Type Discovery Gap
 
 | Expected | Actual |
 |----------|--------|
-| `Microsoft.FoundryLocal` or `Microsoft.Foundry` (capital) | `microsoft.foundry` (lowercase) |
+| `Microsoft.FoundryLocal` or `Microsoft.Foundry` | `microsoft.foundry` (lowercase exactly) |
 
-**Impact:** Using wrong type name causes immediate failure with "extension type not found."
-
-**Discovery method:**
+**Discovery:**
 ```bash
 az k8s-extension extension-types list-by-cluster \
   --cluster-name <arc-cluster> --resource-group <rg> \
   --cluster-type connectedClusters --query "[?contains(extensionType,'foundry')]"
 ```
 
-**Workaround:** Use `microsoft.foundry` exactly.
+### D7. ModelDeployment CRD Schema (Arc Extension vs Helm)
 
----
-
-### G8: Model CRD Schema Version — DOCUMENTATION GAP
-
-| Old Schema (manual Helm install, pre-June 2026) | Current Schema (Arc Extension) |
-|-------------------------------|-------------------------------|
-| `spec.modelId: "model-name"` | `spec.model.catalog.name: "model-name"` |
-| | `spec.compute: cpu` |
-
-**Impact:** Using the old schema creates a CR that the operator ignores (no status update, no model download).
+| Arc Extension | Older Helm docs |
+|---------------|-----------------|
+| `apiVersion: foundrylocal.azure.com/v1` | `apiVersion: inference.foundry.azure.com/v1alpha1` |
+| `metadata.name` must be DNS-1035 (no dots) | `spec.modelId: "model-name"` |
+| `spec.model.catalog.name: "qwen2.5-coder-0.5b"` | N/A |
 
 **Workaround:** Use the current schema:
 ```yaml
-apiVersion: inference.foundry.azure.com/v1alpha1
+apiVersion: foundrylocal.azure.com/v1
 kind: ModelDeployment
 metadata:
-  name: qwen2.5-coder-0.5b
+  name: qwen2-5-coder-0-5b
 spec:
   model:
     catalog:
@@ -166,71 +191,126 @@ spec:
   compute: cpu
 ```
 
----
+### D8. Helm Ownership Labels Required on Pre-Created Resources
 
-### G9: Namespace UID Range Conflict — INFORMATIONAL
+**Unique to Arc Extension path.** Since the extension install is an atomic Helm release, any pre-existing resources in the namespace must have Helm ownership metadata or the install fails with "invalid ownership metadata."
+
+**Workaround:** All pre-created SAs must include:
+```yaml
+labels:
+  app.kubernetes.io/managed-by: Helm
+annotations:
+  meta.helm.sh/release-name: foundrylocal
+  meta.helm.sh/release-namespace: foundry-local-operator
+```
+
+### D9. Namespace UID Range Conflict (Root Cause of D1)
 
 | OCP Namespace UID Range | Foundry Hardcoded UIDs |
 |------------------------|----------------------|
 | 1000760000–1000769999 | 0 (root), 1000, 101, 10001 |
 
-**Impact:** All Foundry container UIDs fall outside the namespace's allocated range. OCP's SCC rejects them unless `privileged` or `anyuid` SCC is granted.
-
-**Note:** This is the underlying cause of G1 but called out separately because it explains *why* `anyuid` alone isn't sufficient (UID 0 for msi-adapter requires `privileged`).
+All Foundry container UIDs fall outside the namespace's allocated range. Only `privileged` SCC permits all of them (UID 0 for msi-adapter needs more than `anyuid`).
 
 ---
 
-## Summary Matrix
+## Specific Workarounds Applied
 
-| Gap | Severity | Category | Automated in Scripts? |
-|-----|----------|----------|----------------------|
-| G1: SCC enforcement | 🔴 Blocking | Security | ✅ `01-prep-namespace-scc.sh` |
-| G2: StorageClassName ignored | 🔴 Blocking | Storage | ✅ `02-prep-storage.sh` |
-| G3: Azure Disk CSI broken | 🔴 Blocking (env-specific) | Storage | ✅ `02-prep-storage.sh` |
-| G4: OTEL collector bug | 🟡 Partially blocking | Telemetry | ✅ `03-install-extension.sh` |
-| G5: No local-storage provisioner | 🔴 Blocking (when G3) | Storage | ✅ `02-prep-storage.sh` |
-| G6: PV Released state | 🟡 Operational | Storage | ✅ `02-prep-storage.sh` |
-| G7: Extension type name | 🟡 Documentation gap | Install | ✅ `env.sh.example` |
-| G8: CRD schema change | 🟡 Documentation gap | Model | ✅ `04-deploy-model.sh` |
-| G9: Namespace UID range | ℹ️ Informational | Security | ✅ (covered by G1 fix) |
+| # | Workaround | Problem | Script |
+|---|-----------|---------|--------|
+| W1 | Pre-create SAs with Helm labels + `privileged` SCC | Arc Extension atomic install rejects pre-existing SAs without ownership metadata | `02-prep-namespace-scc.sh` |
+| W2 | Swap default StorageClass to `local-storage` | Extension ignores `modelStore.storageClassName` config | `03-prep-storage.sh` |
+| W3 | Create hostPath PV (100Gi) + dir on node | No dynamic provisioner for local-storage | `03-prep-storage.sh` |
+| W4 | Set `global.telemetry.enabled=false` | OTEL bug can block atomic install | `04-install-extension.sh` |
+| W5 | Clear PV claimRef on retry | PV goes `Released` after rollback | `03-prep-storage.sh` |
+| W6 | DNS-1035 sanitize model name (dots → hyphens) | ModelDeployment name validation | `05-deploy-model.sh` |
+
+---
+
+## Performance Observations
+
+| Metric | Value |
+|--------|-------|
+| Extension install time | ~3 min (including Helm release) |
+| Model download (MCR → local OCI store) | ~2 min |
+| Pod cold start (init + model load) | ~3 min |
+| Inference latency (simple prompts) | 0.3–1.0s |
+| API key validation | <10ms |
+| TLS handshake (self-signed) | Negligible |
 
 ---
 
 ## Recommendations to Foundry Local Team
 
-1. **Template `storageClassName`** — Honor the `modelStore.storageClassName` configuration setting in the extension's PVC spec. This is the single most impactful fix for non-AKS platforms.
+### High Priority (Blocking for OpenShift adoption)
 
-2. **Reduce SCC requirements** — Consider:
-   - Running `msi-adapter` as non-root with reduced capabilities
-   - Using OCP-compatible UID ranges (or `runAsUser: null` to inherit namespace range)
-   - Documenting exact SCC requirements for OpenShift
+| # | Improvement | Rationale |
+|---|-------------|-----------|
+| 1 | **Honor `modelStore.storageClassName` config** | Single most impactful fix — currently ignored on every non-AKS platform |
+| 2 | **Reduce SCC requirements** | Drop `runAsUser: 0` from msi-adapter; use configurable UIDs or inherit namespace range |
+| 3 | **Document OpenShift deployment path** | Zero official docs exist for OCP; this repo is the only reference |
+| 4 | **Fix telemetry flag** | `global.telemetry.enabled=false` should prevent pod creation, not just disable data export |
 
-3. **Fix telemetry flag** — `global.telemetry.enabled=false` should prevent telemetry pod creation entirely, not just disable data collection.
+### Medium Priority (Usability)
 
-4. **Document extension type** — Add `microsoft.foundry` to official docs (currently only referenced in Arc extension marketplace).
+| # | Improvement | Rationale |
+|---|-------------|-----------|
+| 5 | **Document DNS-1035 name requirement** | ModelDeployment name silently rejected with dots; no guidance in docs |
+| 6 | **Document CRD schema changes** | `foundrylocal.azure.com/v1` vs old `inference.foundry.azure.com/v1alpha1` undocumented |
+| 7 | **Document extension type name** | `microsoft.foundry` only discoverable via API query |
+| 8 | **Support OCP Routes natively** | Add `endpoint.type=route` for OpenShift-native external access |
 
-5. **Document CRD schema** — Provide versioned API examples in official docs. The schema change from `spec.modelId` to `spec.model.catalog.name` is undocumented.
+### Low Priority (Nice to Have)
 
-6. **Add OCP to supported platforms** — Even a "community-supported" tier with documented workarounds would help adoption.
-
----
-
-## Test Evidence
-
-| Test | Result |
-|------|--------|
-| Extension install (`az k8s-extension create`) | ✅ provisioningState: Succeeded |
-| All pods Running (operator 3/3, api 5/5, store 2/2, telemetry 4/4) | ✅ |
-| Model catalog accessible (178 models) | ✅ |
-| Model deployment (`qwen2.5-coder-0.5b`) Ready=True | ✅ |
-| Inference: "What is 2+2?" → "4" | ✅ |
-| Uninstall + reinstall cycle | ✅ |
+| # | Improvement | Rationale |
+|---|-------------|-----------|
+| 9 | **OLM Operator packaging** | OCP users expect OperatorHub install with automatic SCC lifecycle |
+| 10 | **Integration with OCP service-ca** | Eliminate cert-manager dependency for OCP-native TLS |
+| 11 | **Full model catalog CRD** | `storemodels` only shows hardware-filtered subset; no way to browse full 173+ catalog |
 
 ---
 
-## References
+## AuthN/AuthZ & RBAC
 
-- [Foundry Local Docs (AKS)](https://learn.microsoft.com/azure/ai-foundry/foundry-local/overview)
-- [Arc Extensions](https://learn.microsoft.com/azure/azure-arc/kubernetes/extensions)
-- [OCP SecurityContextConstraints](https://docs.openshift.com/container-platform/latest/authentication/managing-security-context-constraints.html)
-- [Install Scripts](./scripts/)
+### API Key Authentication (Working)
+
+Foundry Local's built-in API key auth works correctly on OCP with no modifications:
+- Auto-generates primary/secondary keys stored in K8s Secret (`<deployment>-api-keys`)
+- Validates via `api-key:` header
+- Returns proper `401 Unauthorized` for invalid keys
+
+**No OCP-specific issues.** Cluster-internal; doesn't conflict with OCP's OAuth proxy.
+
+### Entra ID Integration (Not Tested)
+
+When `entraAuth.enabled=true`, potential OCP issues:
+- OCP clusters typically use their own identity provider (LDAP, OIDC, HTPasswd)
+- The `msi-adapter` sidecar in Entra mode may have additional SCC requirements
+
+**Recommendation:** For OCP deployments, API key auth (`entraAuth.enabled=false`) is the validated path.
+
+---
+
+## Conclusion
+
+**Foundry Local successfully deploys and runs on self-hosted OpenShift 4.21 via Arc Extension** with manual workarounds.
+
+### What Works Well
+- Arc Extension install (atomic, managed lifecycle)
+- StoreModels CRD for hardware-filtered catalog
+- Model download and serving (CPU/ONNX, ~3 min cold start)
+- API key authentication (auto-generated, properly enforced)
+- TLS on model service (self-signed cert, port 5000)
+- OpenAI-compatible API (`/v1/chat/completions`, `/v1/models`)
+
+### What Requires Manual Intervention
+- **6 SCC grants across 6 ServiceAccounts** with Helm ownership labels (undocumented)
+- **StorageClass swap** — extension ignores config, uses cluster default
+- **Local-storage PV** — no dynamic provisioner, manual hostPath
+- **Telemetry disable** — must set config flag to avoid OTEL issues
+- **Model name sanitization** — dots not allowed in deployment name
+
+### Fundamental Gap
+Foundry Local's security model assumes **Kubernetes Pod Security Standards** (namespace-level labels). OpenShift uses **Security Context Constraints** (per-ServiceAccount grants). These are incompatible admission control systems. The Arc Extension's atomic install makes this worse — there's no opportunity to fix SCC issues mid-install; everything must be pre-configured correctly.
+
+The platform is viable for on-premises AI inference on Red Hat OpenShift with Azure Arc connectivity, but requires OCP-specific operational knowledge not currently documented by the Foundry Local team.
