@@ -121,20 +121,20 @@ With `--name foundrylocal` (default in env.sh.example), the prefixed SAs become:
 ## File Structure
 
 ```
-ArcExtension/
+arc-extension/
 ├── README.md                      ← This file
 ├── env.sh.example                 ← Template — copy to env.sh
 ├── gaps-and-workarounds.md        ← Detailed gap analysis report
-├── scripts/
-│   ├── 00-prerequisites.sh        ← Verify tools & connectivity
-│   ├── 01-connect-arc.sh          ← Azure prep + connect OCP to Arc
-│   ├── 02-prep-namespace-scc.sh   ← Namespace + SCC grants
-│   ├── 03-prep-storage.sh         ← StorageClass + PV setup
-│   ├── 04-install-extension.sh    ← Arc extension install
-│   ├── 05-deploy-model.sh         ← Deploy model from catalog
-│   ├── 06-validate-inference.sh   ← Quick inference validation
-│   ├── 09-uninstall.sh            ← Clean removal
-│   ├── 07-e2e-tests.sh            ← Full E2E test suite (10 tests)
-│   └── 08-configure-entra-auth.sh ← Entra ID authentication setup
-└── manifests/                     ← (Optional YAML manifests for reference)
+└── scripts/
+    ├── 00-prerequisites.sh        ← Verify tools & connectivity
+    ├── 01-connect-arc.sh          ← Azure prep + connect OCP to Arc
+    ├── 02-prep-namespace-scc.sh   ← Namespace + SCC grants
+    ├── 03-prep-storage.sh         ← StorageClass + PV setup
+    ├── 04-install-extension.sh    ← Arc extension install
+    ├── 05-deploy-model.sh         ← Deploy model from catalog
+    ├── 06-validate-inference.sh   ← Quick inference validation
+    ├── 07-e2e-tests.sh            ← Full E2E test suite (10 tests)
+    ├── 08-configure-entra-auth.sh ← Entra ID authentication setup
+    ├── 09-uninstall.sh            ← Clean removal
+    └── ocp-fl-demo.sh             ← Interactive step-by-step demo
 ```

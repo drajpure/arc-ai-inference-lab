@@ -18,9 +18,17 @@ Validate that AI inference platforms (Foundry Local, and others) can be deployed
 arc-ai-inference-lab/
 ├── README.md
 └── foundry-local-ocp/
-    ├── validation-report.md
-    ├── scripts/                 # Original Helm-based install
-    └── ArcExtension/            # Arc Extension install (recommended)
+    ├── README.md                    # Comparison of both install methods
+    ├── arc-extension/               # Arc Extension install (recommended)
+    │   ├── scripts/
+    │   ├── env.sh.example
+    │   └── README.md
+    └── helm-standalone/             # Direct Helm chart install
+        ├── scripts/
+        ├── manifests/
+        ├── env.sh.example
+        ├── validation-report.md
+        └── README.md
 ```
 
 ## Contributing
