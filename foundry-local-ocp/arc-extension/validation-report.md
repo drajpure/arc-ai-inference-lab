@@ -1,8 +1,8 @@
 # Foundry Local on Self-Hosted OpenShift (Arc Extension) — Validation Report
 
-**Status:** ✅ Validated end-to-end. Inference round-trip succeeded against `qwen2.5-coder-0.5b` (HTTP 200, TLS, API-key auth).
+**Status:** ✅ Validated end-to-end. Inference round-trip succeeded against `qwen2.5-coder-0.5b` (HTTP 200, TLS, **both API-key and Entra ID token auth**).
 
-**Install Method:** `az k8s-extension create --extension-type microsoft.foundry`
+**Install Method:** `az k8s-extension create --extension-type microsoft.foundry` with Entra ID enabled
 
 **Validation Date:** 2026-06-19
 
@@ -21,6 +21,7 @@
 | Azure Arc Agent | Connected (`distributionVersion=4.21`, `infrastructure=azure`) |
 | Extension type | `microsoft.foundry` |
 | Extension name | `foundrylocal` |
+| Entra Auth | Enabled (`entraAuth.clientId=ea139b1c-c20d-4395-adb5-4757a618be7c`) |
 | Operator namespace | `foundry-local-operator` |
 | cert-manager | v1.19.2 (Jetstack upstream Helm chart) |
 | trust-manager | v0.20.3 (Jetstack upstream Helm chart) |
@@ -57,10 +58,12 @@ az connectedk8s connect \
 | 3 | cert-manager + trust-manager | `helm upgrade --install` (Jetstack charts) | ✅ All pods Running | ~2 min |
 | 4 | Namespace + SCC grants | `02-prep-namespace-scc.sh` → 6 SAs with privileged SCC | ✅ | ~10 sec |
 | 5 | Storage (local-storage + PV) | `03-prep-storage.sh` → SC swap + 100Gi hostPath PV | ✅ PV Available | ~15 sec |
-| 6 | Extension install | `az k8s-extension create --extension-type microsoft.foundry` | ✅ Succeeded | ~3 min |
+| 6 | Extension install (Entra ID) | `az k8s-extension create` + `entraAuth.clientId` + `entraAuth.tenantId` | ✅ Succeeded | ~2.5 min |
 | 7 | Pod readiness | All operator/store/telemetry pods Running | ✅ 14 pods total | ~1 min |
-| 8 | Model deployment | `ModelDeployment` CR applied → Available=True | ✅ | ~5 min |
-| 9 | Inference validation | HTTPS POST → HTTP 200, correct content | ✅ | <1 sec |
+| 8 | Model deployment | `ModelDeployment` CR applied → Available=True | ✅ | ~2 min |
+| 9 | Inference (API key) | HTTPS POST with `api-key:` header → HTTP 200 | ✅ | <1 sec |
+| 10 | Inference (Entra ID) | HTTPS POST with `Authorization: Bearer` → HTTP 200 | ✅ | <1 sec |
+| 11 | Auth rejection | Invalid/missing token → HTTP 401 | ✅ | <1 sec |
 
 ### Pod Inventory (post-install)
 
@@ -85,7 +88,7 @@ foundry-local-operator     qwen2-5-coder-0-5b-*                          1/1    
 
 ## 3. Inference Validation Details
 
-### Request
+### Request (API Key)
 
 ```bash
 curl -sk "https://localhost:5000/v1/chat/completions" \
@@ -99,19 +102,38 @@ curl -sk "https://localhost:5000/v1/chat/completions" \
   }'
 ```
 
-### Response (abbreviated)
+### Request (Entra ID Token)
+
+```bash
+# Acquire token using Azure CLI (pre-authorized in Step 4 of Entra setup)
+TOKEN=$(az account get-access-token \
+  --resource "api://ea139b1c-c20d-4395-adb5-4757a618be7c" \
+  --query accessToken -o tsv)
+
+curl -sk "https://localhost:5000/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "model": "qwen2-5-coder-0-5b",
+    "messages": [{"role": "user", "content": "What is 2+2? Answer with just the number."}],
+    "max_tokens": 50
+  }'
+```
+
+### Response (both methods return identical format)
 
 ```json
 {
-  "id": "chatcmpl-...",
-  "object": "chat.completion",
-  "model": "qwen2-5-coder-0-5b",
+  "model": "qwen2.5-coder-0.5b-instruct-generic-cpu:4",
   "choices": [{
-    "index": 0,
     "message": {"role": "assistant", "content": "4"},
+    "index": 0,
     "finish_reason": "stop"
   }],
-  "usage": {"prompt_tokens": 28, "completion_tokens": 1, "total_tokens": 29}
+  "usage": {"prompt_tokens": 42, "completion_tokens": 1, "total_tokens": 43},
+  "id": "chat.id.1",
+  "object": "chat.completion",
+  "successful": true
 }
 ```
 
@@ -120,17 +142,21 @@ curl -sk "https://localhost:5000/v1/chat/completions" \
 | Property | Value |
 |----------|-------|
 | Protocol | HTTPS (self-signed TLS, port 5000) |
-| Auth mechanism | `api-key` header |
+| Auth mechanism 1 | `api-key` header (auto-generated key in Secret) |
+| Auth mechanism 2 | `Authorization: Bearer <entra-jwt>` (v2.0 token with `scp: foundry_access`) |
 | Secret name | `<deployment-name>-api-keys` |
 | Secret field | `primary-key` (base64-encoded) |
+| Entra App Client ID | `ea139b1c-c20d-4395-adb5-4757a618be7c` |
+| Entra Token Resource | `api://ea139b1c-c20d-4395-adb5-4757a618be7c` |
 | API compatibility | OpenAI Chat Completions (`/v1/chat/completions`) |
 | CRD group | `foundrylocal.azure.com` |
 | CRD version | `v1` |
 | CRD kind | `ModelDeployment` |
 | Readiness condition | `type: Available`, `status: "True"` |
 | Service port | 5000 (model pod exposes HTTPS directly) |
-| Invalid key response | HTTP 401 Unauthorized |
-| Empty api-key response | HTTP 401 Unauthorized |
+| Invalid api-key | HTTP 401 `{"error":{"code":"invalid_token"}}` |
+| Invalid Bearer token | HTTP 401 `{"error":{"code":"invalid_token","message":"Token validation failed"}}` |
+| Missing auth header | HTTP 401 `{"error":{"code":"missing_credentials"}}` |
 | Wrong model name | HTTP 404 (model not found) |
 
 ---
@@ -487,6 +513,8 @@ Without these two settings, the Foundry Local operator will fail to start with c
 │  │     --name foundrylocal \                                             │  │
 │  │     --extension-type microsoft.foundry \                              │  │
 │  │     --configuration-settings "global.telemetry.enabled=false" \       │  │
+│  │     --configuration-settings "entraAuth.tenantId=<tenant>" \          │  │
+│  │     --configuration-settings "entraAuth.clientId=<client-id>" \       │  │
 │  │     --no-wait                                                         │  │
 │  │                                                                       │  │
 │  │   ⏳ Poll provisioningState every 15s (timeout: 10 min)               │  │
@@ -587,26 +615,75 @@ Without these two settings, the Foundry Local operator will fail to start with c
 **Mechanism:**
 - Extension auto-generates a random API key during model deployment
 - Key stored in Secret: `<deployment-name>-api-keys`, field: `primary-key` (base64)
-- Client must pass `api-key: <value>` header (NOT `Authorization: Bearer`)
+- Client must pass `api-key: <value>` header
 - Each ModelDeployment gets its own key
 
 **Validation tests performed:**
 | Test | Expected | Actual | Result |
 |------|----------|--------|--------|
 | Valid api-key header | 200 + response | 200 + response | ✅ |
-| Invalid api-key value | 401 | 401 Unauthorized | ✅ |
-| Missing api-key header | 401 | 401 Unauthorized | ✅ |
-| Empty api-key value | 401 | 401 Unauthorized | ✅ |
-| `Authorization: Bearer` (wrong header) | 401 | 401 Unauthorized | ✅ |
+| Invalid api-key value | 401 | 401 `invalid_token` | ✅ |
+| Missing api-key header | 401 | 401 `missing_credentials` | ✅ |
+| Empty api-key value | 401 | 401 `missing_credentials` | ✅ |
 
-### Microsoft Entra ID Authentication (Not Validated)
+### Microsoft Entra ID Authentication (Validated ✅)
 
-**Status:** Script `09-configure-entra-auth.sh` exists but Entra auth was NOT end-to-end tested on this cluster.
+**Status:** Fully validated end-to-end on OCP 4.21 with Arc Extension. Both delegated user tokens (via Azure CLI) and the API key path work simultaneously.
 
-**Known risks on OCP:**
-- The `msi-adapter` sidecar (used for managed identity token acquisition) already requires `privileged` SCC for basic install
-- In Entra mode, `msi-adapter` may inject additional sidecars with further privilege requirements
-- If Entra auth is not needed, API key is the validated and recommended path
+**Setup required (one-time):**
+1. Register Entra app (single-tenant) with `foundry_access` delegated scope
+2. Set `accessTokenAcceptedVersion: 2` (v2.0 tokens required)
+3. Pre-authorize Azure CLI (`04b07795-8ddb-461a-bbee-02f9e1bf7b46`) as known client
+4. Install extension with `--config entraAuth.tenantId=<tenant> --config entraAuth.clientId=<client>`
+5. Grant Arc cluster identity `Cognitive Services OpenAI User` on connected cluster scope
+6. Grant calling user/group the same role on the connected cluster scope
+
+**Extension install command (with Entra):**
+```bash
+az k8s-extension create \
+  --name foundrylocal \
+  --extension-type microsoft.foundry \
+  --cluster-name <arc-cluster> \
+  --resource-group <rg> \
+  --cluster-type connectedClusters \
+  --scope cluster \
+  --release-namespace foundry-local-operator \
+  --release-train stable \
+  --auto-upgrade-minor-version true \
+  --configuration-settings "global.telemetry.enabled=false" \
+  --configuration-settings "entraAuth.tenantId=<tenant-id>" \
+  --configuration-settings "entraAuth.clientId=<app-client-id>"
+```
+
+**Token acquisition:**
+```bash
+# Acquire delegated user token via Azure CLI
+TOKEN=$(az account get-access-token \
+  --resource "api://<app-client-id>" \
+  --query accessToken -o tsv)
+
+# Use in inference request
+curl -sk "https://localhost:5000/v1/chat/completions" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen2-5-coder-0-5b","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+**Validation tests performed:**
+| Test | Expected | Actual | Result |
+|------|----------|--------|--------|
+| Valid Entra Bearer token | 200 + response | 200 + response (content: "4") | ✅ |
+| Invalid Bearer token | 401 | 401 `{"code":"invalid_token","message":"Token validation failed"}` | ✅ |
+| No auth header at all | 401 | 401 `{"code":"missing_credentials","message":"No Bearer token or API key provided"}` | ✅ |
+| API key still works alongside Entra | 200 | 200 + response (content: "4") | ✅ |
+
+**Key finding:** Both auth mechanisms work **simultaneously**. The inference pod accepts either `api-key:` or `Authorization: Bearer` headers — no need to choose one or the other. This means teams can use API keys for simple testing and Entra ID for production RBAC without reinstalling.
+
+**OCP-specific observations:**
+- The `msi-adapter` sidecar (used for Entra token validation) runs in every inference-operator-api pod and model deployment pod
+- No additional SCC requirements beyond what's already needed (D1) — `privileged` SCC covers the msi-adapter
+- Token validation adds ~46s latency on first request (cold JWT validation cache), subsequent requests are sub-second
+- The Arc cluster's managed identity must have `Cognitive Services OpenAI User` role; without it, all Bearer requests fail with `500 rbac_check_unavailable`
 
 ---
 
@@ -729,7 +806,7 @@ kubectl get storemodels -n foundry-local-operator
 
 ## E. Test Results (E2E Suite)
 
-The `08-e2e-tests.sh` script runs 10 validation tests:
+The `08-e2e-tests.sh` script runs 10 validation tests, plus 3 additional Entra ID auth tests:
 
 | # | Test | Status |
 |---|------|--------|
@@ -740,8 +817,11 @@ The `08-e2e-tests.sh` script runs 10 validation tests:
 | 5 | PVC Bound to PV | ✅ Pass |
 | 6 | ModelDeployment Available=True | ✅ Pass |
 | 7 | API key extractable from Secret | ✅ Pass |
-| 8 | Inference returns HTTP 200 | ✅ Pass |
+| 8 | Inference (api-key) returns HTTP 200 | ✅ Pass |
 | 9 | Response contains valid content | ✅ Pass |
 | 10 | Invalid API key returns 401 | ✅ Pass |
+| 11 | Entra token acquired via `az account get-access-token` | ✅ Pass |
+| 12 | Inference (Entra Bearer) returns HTTP 200 | ✅ Pass |
+| 13 | Invalid Bearer token returns 401 | ✅ Pass |
 
-**Result: 10/10 tests passed.**
+**Result: 13/13 tests passed.**
