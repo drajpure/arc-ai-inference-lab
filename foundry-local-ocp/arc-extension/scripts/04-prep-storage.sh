@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 02-prep-storage.sh
+# 04-prep-storage.sh
 # Prepares storage for the model-store PVC.
 #
 # If USE_LOCAL_STORAGE=true:
@@ -129,4 +129,4 @@ fi
 echo ""
 echo "=== Storage Setup Complete ==="
 echo ""
-echo "Next: Run ./scripts/04-install-extension.sh"
+echo "Next: Run ./scripts/05-install-extension.sh"

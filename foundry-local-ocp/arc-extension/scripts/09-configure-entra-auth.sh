@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 08-configure-entra-auth.sh
+# 09-configure-entra-auth.sh
 # Configure Microsoft Entra ID authentication for Foundry Local on Arc.
 #
 # Implements the 7-step process from:

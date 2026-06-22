@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 04-deploy-model.sh
+# 06-deploy-model.sh
 # Deploys a model via the ModelDeployment CRD created by the extension.
 #
 # Prerequisites:
@@ -39,7 +39,7 @@ if kubectl get modeldeployment "$DEPLOY_NAME" -n "$NAMESPACE" &>/dev/null; then
   if [[ "$READY" == "True" ]]; then
     echo "OK Model is already deployed and ready."
     echo ""
-    echo "Next: Run ./scripts/06-validate-inference.sh"
+    echo "Next: Run ./scripts/07-validate-inference.sh"
     exit 0
   fi
   echo "   Waiting for it to become ready..."
@@ -98,4 +98,4 @@ if [[ $ELAPSED -ge $MAX_WAIT ]]; then
 fi
 
 echo ""
-echo "Next: Run ./scripts/06-validate-inference.sh"
+echo "Next: Run ./scripts/07-validate-inference.sh"

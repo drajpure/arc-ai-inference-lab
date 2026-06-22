@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 06-uninstall.sh
+# 10-uninstall.sh
 # Cleanly removes Foundry Local and restores the cluster to pre-install state.
 #
 # Order of operations:

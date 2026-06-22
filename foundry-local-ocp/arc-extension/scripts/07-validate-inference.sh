@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 05-validate-inference.sh
+# 07-validate-inference.sh
 # Validates the Foundry Local inference endpoint by:
 #   1. Port-forwarding to the operator-api service
 #   2. Extracting the API key from the cluster secret
@@ -100,4 +100,4 @@ echo "✅ Model responded: $CONTENT"
 echo ""
 echo "🎉 Foundry Local on OCP via Arc Extension is fully operational!"
 echo ""
-echo "Next: Run ./scripts/07-e2e-tests.sh (optional full E2E test suite)"
+echo "Next: Run ./scripts/08-e2e-tests.sh (optional full E2E test suite)"

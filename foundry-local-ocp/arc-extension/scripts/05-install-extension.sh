@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 03-install-extension.sh
+# 05-install-extension.sh
 # Installs Foundry Local via the Azure Arc extension mechanism.
 #
 # Prerequisites (must be completed before running this):
@@ -143,4 +143,4 @@ echo "=== Post-Install Verification ==="
 echo ""
 kubectl get pods -n "$NAMESPACE"
 echo ""
-echo "Next: Run ./scripts/05-deploy-model.sh"
+echo "Next: Run ./scripts/06-deploy-model.sh"

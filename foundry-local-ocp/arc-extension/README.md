@@ -29,21 +29,22 @@ vim env.sh  # fill in subscription, resource group, Arc cluster name, node, etc.
 # 2. Run scripts in order
 ./scripts/00-prerequisites.sh        # Verify tools, connectivity, Arc status
 ./scripts/01-connect-arc.sh          # Register providers, create RG, connect to Arc (skips if already done)
-./scripts/02-prep-namespace-scc.sh   # Pre-create SAs, grant privileged SCC
-./scripts/03-prep-storage.sh         # Set up local-storage SC + PV (if needed)
-./scripts/04-install-extension.sh    # Install via az k8s-extension create
-./scripts/05-deploy-model.sh         # Deploy a model from catalog
-./scripts/06-validate-inference.sh   # Port-forward + send inference request
+./scripts/02-install-cert-manager.sh # Install cert-manager + trust-manager (required by Foundry)
+./scripts/03-prep-namespace-scc.sh   # Pre-create SAs, grant privileged SCC
+./scripts/04-prep-storage.sh         # Set up local-storage SC + PV (if needed)
+./scripts/05-install-extension.sh    # Install via az k8s-extension create
+./scripts/06-deploy-model.sh         # Deploy a model from catalog
+./scripts/07-validate-inference.sh   # Port-forward + send inference request
 
 # Optional:
-./scripts/07-e2e-tests.sh            # Full E2E test suite (10 tests)
-./scripts/08-configure-entra-auth.sh # Entra ID authentication setup
+./scripts/08-e2e-tests.sh            # Full E2E test suite (10 tests)
+./scripts/09-configure-entra-auth.sh # Entra ID authentication setup
 ```
 
 ## Uninstall
 
 ```bash
-./scripts/09-uninstall.sh  # Removes extension, SCC grants, CRDs, PVCs; restores default SC
+./scripts/10-uninstall.sh  # Removes extension, SCC grants, CRDs, PVCs; restores default SC
 ```
 
 ## Architecture
@@ -124,17 +125,18 @@ With `--name foundrylocal` (default in env.sh.example), the prefixed SAs become:
 arc-extension/
 ├── README.md                      ← This file
 ├── env.sh.example                 ← Template — copy to env.sh
-├── validation-report.md        ← Full validation report with findings
+├── validation-report.md           ← Full validation report with findings
 └── scripts/
     ├── 00-prerequisites.sh        ← Verify tools & connectivity
     ├── 01-connect-arc.sh          ← Azure prep + connect OCP to Arc
-    ├── 02-prep-namespace-scc.sh   ← Namespace + SCC grants
-    ├── 03-prep-storage.sh         ← StorageClass + PV setup
-    ├── 04-install-extension.sh    ← Arc extension install
-    ├── 05-deploy-model.sh         ← Deploy model from catalog
-    ├── 06-validate-inference.sh   ← Quick inference validation
-    ├── 07-e2e-tests.sh            ← Full E2E test suite (10 tests)
-    ├── 08-configure-entra-auth.sh ← Entra ID authentication setup
-    ├── 09-uninstall.sh            ← Clean removal
+    ├── 02-install-cert-manager.sh ← cert-manager + trust-manager (Jetstack)
+    ├── 03-prep-namespace-scc.sh   ← Namespace + SCC grants
+    ├── 04-prep-storage.sh         ← StorageClass + PV setup
+    ├── 05-install-extension.sh    ← Arc extension install
+    ├── 06-deploy-model.sh         ← Deploy model from catalog
+    ├── 07-validate-inference.sh   ← Quick inference validation
+    ├── 08-e2e-tests.sh            ← Full E2E test suite (10 tests)
+    ├── 09-configure-entra-auth.sh ← Entra ID authentication setup
+    ├── 10-uninstall.sh            ← Clean removal
     └── ocp-fl-demo.sh             ← Interactive step-by-step demo
 ```

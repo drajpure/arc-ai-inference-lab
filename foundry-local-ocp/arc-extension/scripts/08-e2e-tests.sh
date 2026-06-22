@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 07-e2e-tests.sh
+# 08-e2e-tests.sh
 # Comprehensive E2E test suite for Foundry Local inference endpoint.
 # Tests: basic completion, system prompts, multi-turn, temperature, max tokens,
 #        model listing, auth validation, error handling.
