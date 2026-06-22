@@ -133,6 +133,8 @@ run_test() {
 }
 
 echo "Running tests..."
+echo ""
+echo "  ── API Key Auth ─────────────────────────────────────────────────"
 echo "  -----|-----------------------------------------------|---------|--------"
 
 # Test 1: Basic chat completion
@@ -166,13 +168,16 @@ run_test "List Models (GET /v1/models)" "/v1/models" "GET" "" "data"
 # Test 7: Invalid API key (expect 401)
 SAVED_KEY="$API_KEY"
 API_KEY="invalid-key-12345"
-run_test "Auth — Invalid API Key (expect 401)" "/v1/chat/completions" "POST" \
+run_test "Invalid API Key (expect 401)" "/v1/chat/completions" "POST" \
   "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}],\"max_tokens\":10}" \
   "" "true"
 API_KEY="$SAVED_KEY"
 
 # Test 8: Entra ID token auth (if configured)
 if [[ -n "${ENTRA_APP_CLIENT_ID:-}" ]]; then
+  echo ""
+  echo "  ── Entra ID Auth ────────────────────────────────────────────────"
+  echo "  -----|-----------------------------------------------|---------|--------"
   APP_ID_URI="api://${ENTRA_APP_CLIENT_ID}"
   ENTRA_TOKEN=$(az account get-access-token --resource "$APP_ID_URI" --query accessToken -o tsv 2>/dev/null || true)
 
@@ -187,11 +192,11 @@ if [[ -n "${ENTRA_APP_CLIENT_ID:-}" ]]; then
     entra_content=$(echo "$entra_body" | jq -r '.choices[0].message.content // empty' 2>/dev/null | head -1)
 
     if [[ "$entra_http" == "200" && -n "$entra_content" ]]; then
-      printf "  PASS | %-45s | %6ss | HTTP %s\n" "Auth — Entra ID Bearer Token" "0.00" "$entra_http"
+      printf "  PASS | %-45s | %6ss | HTTP %s\n" "Valid Bearer Token" "0.00" "$entra_http"
       printf "         → %s\n" "$entra_content"
       PASSED=$((PASSED + 1))
     else
-      printf "  FAIL | %-45s | %6ss | HTTP %s\n" "Auth — Entra ID Bearer Token" "0.00" "$entra_http"
+      printf "  FAIL | %-45s | %6ss | HTTP %s\n" "Valid Bearer Token" "0.00" "$entra_http"
       printf "         ✗ %s\n" "$(echo "$entra_body" | jq -r '.error.message // empty' 2>/dev/null | cut -c1-120)"
       FAILED=$((FAILED + 1))
     fi
@@ -204,10 +209,10 @@ if [[ -n "${ENTRA_APP_CLIENT_ID:-}" ]]; then
     invalid_http=$(echo "$invalid_response" | tail -1)
 
     if [[ "$invalid_http" =~ ^(401|403)$ ]]; then
-      printf "  PASS | %-45s | %6ss | HTTP %s\n" "Auth — Invalid Bearer Token (expect 401)" "0.00" "$invalid_http"
+      printf "  PASS | %-45s | %6ss | HTTP %s\n" "Invalid Bearer Token (expect 401)" "0.00" "$invalid_http"
       PASSED=$((PASSED + 1))
     else
-      printf "  FAIL | %-45s | %6ss | HTTP %s\n" "Auth — Invalid Bearer Token (expect 401)" "0.00" "$invalid_http"
+      printf "  FAIL | %-45s | %6ss | HTTP %s\n" "Invalid Bearer Token (expect 401)" "0.00" "$invalid_http"
       FAILED=$((FAILED + 1))
     fi
 
@@ -218,18 +223,22 @@ if [[ -n "${ENTRA_APP_CLIENT_ID:-}" ]]; then
     noauth_http=$(echo "$noauth_response" | tail -1)
 
     if [[ "$noauth_http" =~ ^(401|403)$ ]]; then
-      printf "  PASS | %-45s | %6ss | HTTP %s\n" "Auth — No Auth Header (expect 401)" "0.00" "$noauth_http"
+      printf "  PASS | %-45s | %6ss | HTTP %s\n" "No Auth Header (expect 401)" "0.00" "$noauth_http"
       PASSED=$((PASSED + 1))
     else
-      printf "  FAIL | %-45s | %6ss | HTTP %s\n" "Auth — No Auth Header (expect 401)" "0.00" "$noauth_http"
+      printf "  FAIL | %-45s | %6ss | HTTP %s\n" "No Auth Header (expect 401)" "0.00" "$noauth_http"
       FAILED=$((FAILED + 1))
     fi
   else
-    printf "  SKIP | %-45s | Token acquisition failed\n" "Auth — Entra ID Tests (3 tests)"
+    printf "  SKIP | %-45s | Token acquisition failed\n" "Entra ID Tests (3 tests)"
   fi
 else
-  printf "  SKIP | %-45s | ENTRA_APP_CLIENT_ID not set\n" "Auth — Entra ID Tests (3 tests)"
+  printf "  SKIP | %-45s | ENTRA_APP_CLIENT_ID not set\n" "Entra ID Tests (3 tests)"
 fi
+
+echo ""
+echo "  ── Error Handling & Edge Cases ────────────────────────────────"
+echo "  -----|-----------------------------------------------|---------|--------"
 
 # Test: Empty messages (expect 400/422)
 run_test "Error — Empty Messages (expect 400)" "/v1/chat/completions" "POST" \
