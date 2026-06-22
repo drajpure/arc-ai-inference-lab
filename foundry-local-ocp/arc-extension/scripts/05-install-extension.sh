@@ -64,7 +64,29 @@ fi
 
 # Install the extension
 echo "--- Installing extension ---"
-echo "Config: global.telemetry.enabled=false"
+echo "Config:"
+echo "  global.telemetry.enabled=false"
+
+# Build config args
+CONFIG_ARGS=(
+  --configuration-settings "global.telemetry.enabled=false"
+)
+
+# Add Entra auth if client ID is set
+if [[ -n "${ENTRA_APP_CLIENT_ID:-}" ]]; then
+  ENTRA_TENANT="${ENTRA_TENANT_ID:-$AZURE_TENANT_ID}"
+  echo "  entraAuth.clientId=${ENTRA_APP_CLIENT_ID}"
+  echo "  entraAuth.tenantId=${ENTRA_TENANT}"
+  CONFIG_ARGS+=(
+    --configuration-settings "entraAuth.clientId=${ENTRA_APP_CLIENT_ID}"
+    --configuration-settings "entraAuth.tenantId=${ENTRA_TENANT}"
+  )
+else
+  echo "  entraAuth: disabled (ENTRA_APP_CLIENT_ID not set)"
+  CONFIG_ARGS+=(
+    --configuration-settings "entraAuth.enabled=false"
+  )
+fi
 echo ""
 
 az k8s-extension create \
@@ -73,7 +95,11 @@ az k8s-extension create \
   --cluster-name "$ARC_CLUSTER_NAME" \
   --resource-group "$ARC_RESOURCE_GROUP" \
   --cluster-type connectedClusters \
-  --configuration-settings "global.telemetry.enabled=false" \
+  --scope cluster \
+  --release-namespace "$NAMESPACE" \
+  --release-train stable \
+  --auto-upgrade-minor-version true \
+  "${CONFIG_ARGS[@]}" \
   --no-wait
 
 echo ""

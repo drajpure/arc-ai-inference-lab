@@ -25,20 +25,21 @@ End-to-end scripts to install **Microsoft Foundry Local** on a **self-hosted Ope
 # 1. Copy and fill in your environment
 cp env.sh.example env.sh
 vim env.sh  # fill in subscription, resource group, Arc cluster name, node, etc.
+             # For Entra ID auth: set ENTRA_APP_CLIENT_ID (run 09-configure-entra-auth.sh first)
 
-# 2. Run scripts in order
+# 2. (Optional) Set up Entra ID auth BEFORE extension install
+./scripts/09-configure-entra-auth.sh # Creates app registration, scopes, RBAC
+                                      # Copy the ENTRA_APP_CLIENT_ID output to env.sh
+
+# 3. Run scripts in order
 ./scripts/00-prerequisites.sh        # Verify tools, connectivity, Arc status
 ./scripts/01-connect-arc.sh          # Register providers, create RG, connect to Arc (skips if already done)
 ./scripts/02-install-cert-manager.sh # Install cert-manager + trust-manager (required by Foundry)
 ./scripts/03-prep-namespace-scc.sh   # Pre-create SAs, grant privileged SCC
 ./scripts/04-prep-storage.sh         # Set up local-storage SC + PV (if needed)
-./scripts/05-install-extension.sh    # Install via az k8s-extension create
+./scripts/05-install-extension.sh    # Install via az k8s-extension create (auto-detects Entra config)
 ./scripts/06-deploy-model.sh         # Deploy a model from catalog
-./scripts/07-validate-inference.sh   # Port-forward + send inference request
-
-# Optional:
-./scripts/08-e2e-tests.sh            # Full E2E test suite (10 tests)
-./scripts/09-configure-entra-auth.sh # Entra ID authentication setup
+./scripts/07-validate-inference.sh   # Port-forward + test API key + Entra token auth
 ```
 
 ## Uninstall

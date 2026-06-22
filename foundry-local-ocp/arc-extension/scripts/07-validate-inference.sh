@@ -57,8 +57,8 @@ fi
 echo "OK Port-forward active on localhost:$LOCAL_PORT (PID: $PF_PID)"
 echo ""
 
-# Step 3: Send inference request
-echo "--- Sending chat completion request ---"
+# Step 3: Send inference request (API key)
+echo "--- Sending chat completion request (API key auth) ---"
 echo "Model: $DEPLOY_NAME"
 echo "Prompt: What is 2+2? Answer with just the number."
 echo ""
@@ -74,11 +74,8 @@ RESPONSE=$(curl -sk "https://localhost:${LOCAL_PORT}/v1/chat/completions" \
     \"max_tokens\": 50
   }")
 
-# Cleanup port-forward
-kill $PF_PID 2>/dev/null || true
-
 echo ""
-echo "--- Response ---"
+echo "--- Response (API key) ---"
 echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
 
 # Step 4: Validate response
@@ -87,17 +84,59 @@ CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev
 if [[ -z "$CONTENT" ]]; then
   ERROR=$(echo "$RESPONSE" | jq -r '.error.message // empty' 2>/dev/null)
   echo ""
-  echo "❌ Inference failed."
+  echo "❌ Inference failed (API key auth)."
   if [[ -n "$ERROR" ]]; then
     echo "   Error: $ERROR"
   fi
+  kill $PF_PID 2>/dev/null || true
   exit 1
 fi
 
 echo ""
-echo "=== Inference Validation ==="
-echo "✅ Model responded: $CONTENT"
+echo "✅ API key auth: Model responded: $CONTENT"
+
+# Step 5: Test Entra ID token auth (if configured)
+if [[ -n "${ENTRA_APP_CLIENT_ID:-}" ]]; then
+  echo ""
+  echo "--- Testing Entra ID token auth ---"
+  APP_ID_URI="api://${ENTRA_APP_CLIENT_ID}"
+  ENTRA_TOKEN=$(az account get-access-token --resource "$APP_ID_URI" --query accessToken -o tsv 2>/dev/null || true)
+
+  if [[ -z "$ENTRA_TOKEN" || "$ENTRA_TOKEN" == *"ERROR"* ]]; then
+    echo "⚠️  Could not acquire Entra token. Skipping Entra auth test."
+    echo "   Ensure: az login, app registration, and foundry_access scope are configured."
+  else
+    ENTRA_RESPONSE=$(curl -sk "https://localhost:${LOCAL_PORT}/v1/chat/completions" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $ENTRA_TOKEN" \
+      -d "{
+        \"model\": \"$DEPLOY_NAME\",
+        \"messages\": [
+          {\"role\": \"user\", \"content\": \"What is 3+3? Answer with just the number.\"}
+        ],
+        \"max_tokens\": 50
+      }")
+
+    ENTRA_CONTENT=$(echo "$ENTRA_RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+
+    if [[ -n "$ENTRA_CONTENT" ]]; then
+      echo "✅ Entra ID auth: Model responded: $ENTRA_CONTENT"
+    else
+      ENTRA_ERROR=$(echo "$ENTRA_RESPONSE" | jq -r '.error.message // empty' 2>/dev/null)
+      echo "❌ Entra ID auth failed: ${ENTRA_ERROR:-unknown error}"
+      echo "   Response: $ENTRA_RESPONSE"
+    fi
+  fi
+else
+  echo ""
+  echo "⏭️  Entra auth test skipped (ENTRA_APP_CLIENT_ID not set in env.sh)"
+fi
+
+# Cleanup port-forward
+kill $PF_PID 2>/dev/null || true
+
 echo ""
+echo "=== Inference Validation ==="
 echo "🎉 Foundry Local on OCP via Arc Extension is fully operational!"
 echo ""
 echo "Next: Run ./scripts/08-e2e-tests.sh (optional full E2E test suite)"
