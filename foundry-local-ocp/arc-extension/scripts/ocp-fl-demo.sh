@@ -308,10 +308,10 @@ echo ""
 echo "✅ ANSWER: $(echo "$RESP" | jq -r '.choices[0].message.content')"
 
 # =========================================================
-# STEP 12: Security validation
+# STEP 12: Security validation — API Key
 # =========================================================
 next_step
-print_step "Step 12: Security validation" \
+print_step "Step 12: Security validation — API Key" \
 "Invalid API key → Should return 401"
 
 show_cmd "curl -sk https://localhost:5000/v1/chat/completions -H 'api-key: invalid_key' -d '{...}'"
@@ -325,7 +325,85 @@ echo ""
 echo "📦 RESPONSE:"
 echo "$RESP" | jq
 echo ""
-echo "✅ Expected: 401 Unauthorized — authentication is enforced"
+echo "✅ Expected: 401 Unauthorized — API key authentication is enforced"
+
+# =========================================================
+# STEP 13: Entra ID Auth — Valid token
+# =========================================================
+if [[ -n "${ENTRA_APP_CLIENT_ID:-}" ]]; then
+  next_step
+  print_step "Step 13: Entra ID Auth — Valid Bearer Token" \
+  "Authenticate with Microsoft Entra ID (Client ID: ${ENTRA_APP_CLIENT_ID})"
+
+  APP_ID_URI="api://${ENTRA_APP_CLIENT_ID}"
+  show_cmd "az account get-access-token --resource \"$APP_ID_URI\" --query accessToken -o tsv"
+  ENTRA_TOKEN=$(az account get-access-token --resource "$APP_ID_URI" --query accessToken -o tsv 2>/dev/null || true)
+
+  if [[ -n "$ENTRA_TOKEN" && "$ENTRA_TOKEN" != *"ERROR"* ]]; then
+    echo "✅ Token acquired (${#ENTRA_TOKEN} chars)"
+    echo ""
+
+    show_cmd "curl -sk https://localhost:5000/v1/chat/completions -H 'Authorization: Bearer <token>' -d '{...}'"
+    RESP=$(curl -sk https://localhost:5000/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $ENTRA_TOKEN" \
+      -d "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 3+3? Answer with just the number.\"}]}")
+
+    echo ""
+    echo "📦 RESPONSE:"
+    echo "$RESP" | jq
+    echo ""
+    echo "✅ ANSWER: $(echo "$RESP" | jq -r '.choices[0].message.content')"
+    echo ""
+    echo "🔒 Entra ID Bearer token accepted — enterprise auth works!"
+  else
+    echo "⚠️  Could not acquire Entra token. Skipping Entra tests."
+  fi
+
+  # =========================================================
+  # STEP 14: Entra ID Auth — Invalid token (expect 401)
+  # =========================================================
+  if [[ -n "$ENTRA_TOKEN" && "$ENTRA_TOKEN" != *"ERROR"* ]]; then
+    next_step
+    print_step "Step 14: Entra ID Auth — Invalid Bearer Token" \
+    "Fake JWT → Should return 401"
+
+    show_cmd "curl -sk https://localhost:5000/v1/chat/completions -H 'Authorization: Bearer invalid-jwt' -d '{...}'"
+    RESP=$(curl -sk https://localhost:5000/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer invalid-jwt-token" \
+      -d "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}]}")
+
+    echo ""
+    echo "📦 RESPONSE:"
+    echo "$RESP" | jq
+    echo ""
+    echo "✅ Expected: 401 — invalid Entra tokens are rejected"
+
+    # =========================================================
+    # STEP 15: Entra ID Auth — No auth header (expect 401)
+    # =========================================================
+    next_step
+    print_step "Step 15: Entra ID Auth — No Auth Header" \
+    "No API key, no Bearer → Should return 401"
+
+    show_cmd "curl -sk https://localhost:5000/v1/chat/completions -d '{...}' (no auth header)"
+    RESP=$(curl -sk https://localhost:5000/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -d "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}]}")
+
+    echo ""
+    echo "📦 RESPONSE:"
+    echo "$RESP" | jq
+    echo ""
+    echo "✅ Expected: 401 — unauthenticated requests are blocked"
+  fi
+else
+  next_step
+  print_step "Step 13: Entra ID Auth (SKIPPED)" \
+  "ENTRA_APP_CLIENT_ID not set in env.sh — skipping Entra tests"
+  echo "💡 To enable: set ENTRA_APP_CLIENT_ID in env.sh"
+fi
 
 # =========================================================
 # CLEANUP
