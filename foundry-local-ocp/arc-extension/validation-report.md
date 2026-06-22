@@ -169,15 +169,15 @@ These are behaviors where Foundry Local on OCP diverges from the documented AKS 
 |---|-----------|----------|-----------|-----------|
 | D1 | SCC enforcement — all pods require `privileged` SCC | 🔴 Blocking | Hardcoded UIDs + `NET_ADMIN` capabilities | Pre-create 6 SAs with SCC rolebindings + Helm labels |
 | D2 | `modelStore.storageClassName` config setting is ignored | 🔴 Blocking | PVC template omits `storageClassName` field | Swap cluster default SC to `local-storage` |
-| D3 | Azure Disk CSI broken on UPI/Manual credential clusters | 🔴 Env-specific | No `azure-disk-credentials` secret + org policy blocks SP | Use hostPath PV with node affinity |
-| D4 | OTEL telemetry collector bugs | 🟡 Partial | Collector fails to initialize when no OTEL endpoint configured | `global.telemetry.enabled=false` (pods still created) |
-| D5 | PV enters `Released` state after atomic rollback | 🟡 Operational | Helm rollback deletes PVC but PV retains stale `claimRef` | `kubectl patch pv --type=json` to clear claimRef |
-| D6 | Extension type must be exact lowercase `microsoft.foundry` | 🟡 Doc gap | ARM resource type is case-sensitive | Use exact string in `az k8s-extension create` |
-| D7 | CRD API is `foundrylocal.azure.com/v1` not `inference.foundry.azure.com/v1alpha1` | 🟡 Doc gap | New API version, old blogs/docs reference deprecated API | Use `apiVersion: foundrylocal.azure.com/v1` |
-| D8 | Pre-created resources MUST have Helm ownership labels | 🔴 Arc-specific | Atomic install fails with "invalid ownership metadata" | Label SAs with `managed-by: Helm` + release annotations |
-| D9 | ModelDeployment name must be DNS-1035 (no dots, no uppercase) | 🟡 Doc gap | Kubernetes validation rejects names with `.` in them | Sanitize: `echo "$model" \| tr '.' '-' \| tr '[:upper:]' '[:lower:]'` |
-| D10 | `Microsoft.CertManagement` Arc extension broken on CRI-O | 🔴 Blocking | Deprecated seccomp annotations, hostPath mounts, nested OCI | Use upstream Jetstack cert-manager + trust-manager Helm charts |
-| D11 | `model-store` and model pods use `default` SA instead of dedicated SAs | 🟡 Security | Helm chart Deployments don't set `serviceAccountName` | Grant `privileged` SCC to `default` SA in namespace (not ideal — upstream fix needed) |
+| D3 | Azure Disk CSI broken on UPI/Manual credential clusters | 🔴 Blocking | No `azure-disk-credentials` secret + org policy blocks SP | Use hostPath PV with node affinity |
+| D4 | Pre-created resources MUST have Helm ownership labels | 🔴 Blocking | Atomic install fails with "invalid ownership metadata" | Label SAs with `managed-by: Helm` + release annotations |
+| D5 | `Microsoft.CertManagement` Arc extension broken on CRI-O | 🔴 Blocking | Deprecated seccomp annotations, hostPath mounts, nested OCI | Use upstream Jetstack cert-manager + trust-manager Helm charts |
+| D6 | `model-store` and model pods use `default` SA instead of dedicated SAs | 🟡 Security | Helm chart Deployments don't set `serviceAccountName` | Grant `privileged` SCC to `default` SA in namespace (not ideal — upstream fix needed) |
+| D7 | OTEL telemetry collector bugs | 🟡 Operational | Collector fails to initialize when no OTEL endpoint configured | `global.telemetry.enabled=false` (pods still created) |
+| D8 | PV enters `Released` state after atomic rollback | 🟡 Operational | Helm rollback deletes PVC but PV retains stale `claimRef` | `kubectl patch pv --type=json` to clear claimRef |
+| D9 | Extension type must be exact lowercase `microsoft.foundry` | ⚪ Doc gap | ARM resource type is case-sensitive | Use exact string in `az k8s-extension create` |
+| D10 | CRD API is `foundrylocal.azure.com/v1` not `inference.foundry.azure.com/v1alpha1` | ⚪ Doc gap | New API version, old blogs/docs reference deprecated API | Use `apiVersion: foundrylocal.azure.com/v1` |
+| D11 | ModelDeployment name must be DNS-1035 (no dots, no uppercase) | ⚪ Doc gap | Kubernetes validation rejects names with `.` in them | Sanitize: `echo "$model" \| tr '.' '-' \| tr '[:upper:]' '[:lower:]'` |
 
 ---
 
@@ -270,7 +270,7 @@ kubectl annotate sc local-storage storageclass.kubernetes.io/is-default-class=tr
 
 ---
 
-### D3: Azure Disk CSI on UPI/Manual Credential Clusters (🔴 Env-specific)
+### D3: Azure Disk CSI on UPI/Manual Credential Clusters (🔴 Blocking)
 
 **Problem:** OCP cluster provisioned with `credentialsMode: Manual` (required by some org policies). The Cloud Credential Operator does not automatically provision cloud provider secrets. Azure Disk CSI driver pods are stuck:
 
@@ -328,45 +328,7 @@ spec:
 
 ---
 
-### D4: OTEL Telemetry Collector Bug (🟡 Partial)
-
-**Problem:** With telemetry enabled, the OTEL collector pod enters CrashLoopBackOff when no valid OTEL endpoint is configured. Error observed:
-
-```
-Error: cannot start pipelines: failed to start exporters: failed to start exporter "otlp/azure_monitor": 
-  context deadline exceeded: failed to export traces
-```
-
-**Workaround:** Disable at install time:
-```bash
-az k8s-extension create ... --configuration-settings "global.telemetry.enabled=false"
-```
-
-**Caveat:** This flag does NOT prevent telemetry pods from being created — 4 collector replicas still run. The flag only disables data collection within them. The pods run idle.
-
----
-
-### D5: PV `Released` State After Rollback (🟡 Operational)
-
-**Problem:** When the atomic install fails (e.g., SCC issue missed), Helm rolls back and deletes all resources including the PVC. But the PV retains a `spec.claimRef` pointing to the now-deleted PVC, putting the PV in `Released` state. On retry, the new PVC can't bind to a `Released` PV.
-
-**Detection:**
-```bash
-$ kubectl get pv foundry-model-store-pv
-NAME                      CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS     CLAIM
-foundry-model-store-pv    100Gi      RWO            Retain           Released   foundry-local-operator/foundrylocal-model-store
-```
-
-**Fix:**
-```bash
-kubectl patch pv foundry-model-store-pv --type=json \
-  -p '[{"op":"remove","path":"/spec/claimRef"}]'
-# PV transitions: Released → Available
-```
-
----
-
-### D8: Helm Ownership Labels (🔴 Arc-specific)
+### D4: Helm Ownership Labels (🔴 Blocking)
 
 **Problem:** The Arc extension installation is an atomic Helm release. When pre-created resources (ServiceAccounts) exist in the namespace WITHOUT proper Helm ownership metadata, the install fails immediately with:
 
@@ -397,29 +359,7 @@ In the direct Helm path, you control the install command and can use `--force` o
 
 ---
 
-### D9: ModelDeployment DNS-1035 Naming (🟡 Doc gap)
-
-**Problem:** Model catalog names like `qwen2.5-coder-0.5b` contain dots. Kubernetes resource names must comply with DNS-1035 (RFC 1035: `[a-z]([-a-z0-9]*[a-z0-9])?`). Dots are invalid.
-
-**Error when using dots:**
-```
-The ModelDeployment "qwen2.5-coder-0.5b" is invalid: 
-metadata.name: Invalid value: "qwen2.5-coder-0.5b": 
-a DNS-1035 label must consist of lower case alphanumeric characters or '-', 
-start with an alphabetic character, and end with an alphanumeric character
-```
-
-**Workaround:** Sanitize the model name before creating the CR:
-```bash
-DEPLOY_NAME=$(echo "$MODEL_ALIAS" | tr '.' '-' | tr '[:upper:]' '[:lower:]')
-# "qwen2.5-coder-0.5b" → "qwen2-5-coder-0-5b"
-```
-
-The `spec.model.catalog.name` field retains the original name with dots — only `metadata.name` must be DNS-compliant.
-
----
-
-### D10: Microsoft.CertManagement Arc Extension Broken on CRI-O (🔴 Blocking)
+### D5: Microsoft.CertManagement Arc Extension Broken on CRI-O (🔴 Blocking)
 
 **Problem:** The official docs recommend installing cert-manager via the `Microsoft.CertManagement` Arc extension:
 ```bash
@@ -463,7 +403,7 @@ Without these two settings, the Foundry Local operator will fail to start with c
 
 ---
 
-### D11: Model-Store and Model Pods Use `default` ServiceAccount (🟡 Security)
+### D6: Model-Store and Model Pods Use `default` ServiceAccount (🟡 Security)
 
 **Problem:** The Foundry Local Helm chart does not set `spec.serviceAccountName` on the `foundrylocal-model-store` Deployment or the dynamically-created model Deployments (e.g., `qwen2-5-coder-0-5b`). They default to the `default` SA:
 
@@ -487,6 +427,66 @@ telemetry-collector-6f9fc58688-dw766                   foundrylocal-inference-op
 3. Set `spec.serviceAccountName` on dynamically-created model Deployments (via the operator's pod template)
 
 **Impact:** This does not block functionality — pods work fine with `default` SA + privileged SCC. But it violates the principle of least privilege and would fail a security review for production workloads on multi-tenant OCP clusters.
+
+---
+
+### D7: OTEL Telemetry Collector Bug (🟡 Operational)
+
+**Problem:** With telemetry enabled, the OTEL collector pod enters CrashLoopBackOff when no valid OTEL endpoint is configured. Error observed:
+
+```
+Error: cannot start pipelines: failed to start exporters: failed to start exporter "otlp/azure_monitor": 
+  context deadline exceeded: failed to export traces
+```
+
+**Workaround:** Disable at install time:
+```bash
+az k8s-extension create ... --configuration-settings "global.telemetry.enabled=false"
+```
+
+**Caveat:** This flag does NOT prevent telemetry pods from being created — 4 collector replicas still run. The flag only disables data collection within them. The pods run idle.
+
+---
+
+### D8: PV `Released` State After Rollback (🟡 Operational)
+
+**Problem:** When the atomic install fails (e.g., SCC issue missed), Helm rolls back and deletes all resources including the PVC. But the PV retains a `spec.claimRef` pointing to the now-deleted PVC, putting the PV in `Released` state. On retry, the new PVC can't bind to a `Released` PV.
+
+**Detection:**
+```bash
+$ kubectl get pv foundry-model-store-pv
+NAME                      CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS     CLAIM
+foundry-model-store-pv    100Gi      RWO            Retain           Released   foundry-local-operator/foundrylocal-model-store
+```
+
+**Fix:**
+```bash
+kubectl patch pv foundry-model-store-pv --type=json \
+  -p '[{"op":"remove","path":"/spec/claimRef"}]'
+# PV transitions: Released → Available
+```
+
+---
+
+### D11: ModelDeployment DNS-1035 Naming (⚪ Doc gap)
+
+**Problem:** Model catalog names like `qwen2.5-coder-0.5b` contain dots. Kubernetes resource names must comply with DNS-1035 (RFC 1035: `[a-z]([-a-z0-9]*[a-z0-9])?`). Dots are invalid.
+
+**Error when using dots:**
+```
+The ModelDeployment "qwen2.5-coder-0.5b" is invalid: 
+metadata.name: Invalid value: "qwen2.5-coder-0.5b": 
+a DNS-1035 label must consist of lower case alphanumeric characters or '-', 
+start with an alphabetic character, and end with an alphanumeric character
+```
+
+**Workaround:** Sanitize the model name before creating the CR:
+```bash
+DEPLOY_NAME=$(echo "$MODEL_ALIAS" | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+# "qwen2.5-coder-0.5b" → "qwen2-5-coder-0-5b"
+```
+
+The `spec.model.catalog.name` field retains the original name with dots — only `metadata.name` must be DNS-compliant.
 
 ---
 
