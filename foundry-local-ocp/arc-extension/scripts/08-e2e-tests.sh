@@ -41,10 +41,10 @@ fi
 SVC_NAME="$DEPLOY_NAME"
 LOCAL_PORT=5000
 
-pkill -f "port-forward.*${LOCAL_PORT}:5000" 2>/dev/null || true
+pkill -f "port-forward.*${LOCAL_PORT}" 2>/dev/null || true
 sleep 1
 
-kubectl port-forward "svc/$SVC_NAME" "$LOCAL_PORT:5000" -n "$NAMESPACE" &
+kubectl port-forward "svc/$SVC_NAME" "$LOCAL_PORT:5000" -n "$NAMESPACE" >/dev/null 2>&1 &
 PF_PID=$!
 sleep 3
 
@@ -59,6 +59,13 @@ fi
 BASE_URL="https://localhost:${LOCAL_PORT}"
 PASSED=0
 FAILED=0
+
+echo "  Setup: port-forward localhost:${LOCAL_PORT} → svc/${SVC_NAME}:5000 ✓"
+echo "  Auth:  API key from secret '${DEPLOY_NAME}-api-keys' ✓"
+if [[ -n "${ENTRA_APP_CLIENT_ID:-}" ]]; then
+  echo "  Auth:  Entra ID app ${ENTRA_APP_CLIENT_ID} configured ✓"
+fi
+echo ""
 
 # Test helper
 run_test() {
@@ -255,13 +262,14 @@ run_test "Streaming Response" "/v1/chat/completions" "POST" \
 
 # Test: Model catalog check
 echo ""
-echo "--- Model Catalog ---"
+echo "  ── Cluster Health ─────────────────────────────────────────────"
+echo "  -----|-----------------------------------------------|---------|--------"
 CATALOG_COUNT=$(kubectl get models -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)
 if [[ $CATALOG_COUNT -gt 0 ]]; then
-  printf "  PASS | %-45s | %d models available\n" "Model Catalog Count" "$CATALOG_COUNT"
+  printf "  PASS | %-45s | %d models available\n" "Model Catalog Populated" "$CATALOG_COUNT"
   PASSED=$((PASSED + 1))
 else
-  printf "  FAIL | %-45s | 0 models\n" "Model Catalog Count"
+  printf "  FAIL | %-45s | 0 models\n" "Model Catalog Populated"
   FAILED=$((FAILED + 1))
 fi
 
