@@ -735,7 +735,22 @@ curl -sk "https://localhost:5000/v1/chat/completions" \
 
 ---
 
-## 12. Conclusion
+## 12. Roadmap to Full OpenShift Support
+
+*From 'validated with workarounds' to 'turnkey, supported deployment target.' Three phases, each tied to a customer outcome.*
+
+| Phase | Theme | What it unblocks for you | Focus areas | Divergences addressed |
+|-------|-------|--------------------------|-------------|----------------------|
+| **Phase 1 — Foundation** (Near term) | Deploy cleanly, no manual prep | Install on OpenShift without custom security or storage workarounds | Native OpenShift security-admission (SCC) support — which also removes the install-time `oc` dependency; storage reliability validation | D1 (SCC enforcement), D2 (StorageClass ignored), D3 (Azure Disk CSI), D4 (Helm ownership labels), D6 (default SA), D8 (PV Released state) |
+| **Phase 2 — Experience** (Mid term) | Production-grade & documented | Supported certificates path + official OpenShift deployment guide and automation | Certificate management on CRI-O (CRI-O-compatible cert path); OpenShift-specific documentation & exposure (Routes/Ingress) | D5 (CertManagement on CRI-O), D7 (OTEL collector), D9 (extension type doc), D10 (CRD API doc), D11 (DNS-1035 doc) |
+
+**Executive close: Phase 1 makes it install cleanly; Phase 2 makes it supportable; Phase 3 makes it enterprise-ready.**
+
+*Note: Phases are directional engineering recommendations from the validation, not committed quarters. Calendar dates to be confirmed with the product team.*
+
+---
+
+## 13. Conclusion
 
 **Foundry Local runs successfully on self-hosted OpenShift 4.21 via Azure Arc Extension** with 8 workarounds addressing 11 documented divergences from the AKS path.
 
@@ -745,10 +760,7 @@ curl -sk "https://localhost:5000/v1/chat/completions" \
 
 **Despite these challenges, the system is fully functional.** Inference performance is acceptable for CPU-only workloads (15–25 tokens/sec), the OpenAI-compatible API works correctly, TLS and API-key auth work without modification, and the model catalog/download pipeline functions identically to AKS.
 
-**Path to production readiness:**
-1. Fix D1 (drop root from msi-adapter) — reduces security blast radius from `privileged` to `anyuid`
-2. Fix D2 (honor storageClassName config) — eliminates SC swap hack
-3. Document OCP path officially — enables enterprise adoption
+**Path to production readiness:** See Section 12 (Roadmap) for the phased plan — Phase 1 eliminates all manual workarounds; Phase 2 makes OCP a first-class documented target.
 
 ---
 ---
