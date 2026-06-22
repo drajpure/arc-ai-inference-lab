@@ -164,17 +164,77 @@ run_test "Auth — Invalid API Key (expect 401)" "/v1/chat/completions" "POST" \
   "" "true"
 API_KEY="$SAVED_KEY"
 
-# Test 8: Empty messages (expect 400/422)
+# Test 8: Entra ID token auth (if configured)
+if [[ -n "${ENTRA_APP_CLIENT_ID:-}" ]]; then
+  APP_ID_URI="api://${ENTRA_APP_CLIENT_ID}"
+  ENTRA_TOKEN=$(az account get-access-token --resource "$APP_ID_URI" --query accessToken -o tsv 2>/dev/null || true)
+
+  if [[ -n "$ENTRA_TOKEN" && "$ENTRA_TOKEN" != *"ERROR"* ]]; then
+    # Test: valid Entra token
+    local_response=$(curl -sk -w "\n%{http_code}" "${BASE_URL}/v1/chat/completions" \
+      -H "Authorization: Bearer $ENTRA_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 3+3? Answer with just the number.\"}],\"max_tokens\":50}" 2>/dev/null)
+    entra_http=$(echo "$local_response" | tail -1)
+    entra_body=$(echo "$local_response" | sed '$d')
+    entra_content=$(echo "$entra_body" | jq -r '.choices[0].message.content // empty' 2>/dev/null | head -1)
+
+    if [[ "$entra_http" == "200" && -n "$entra_content" ]]; then
+      printf "  PASS | %-45s | %6ss | HTTP %s\n" "Auth — Entra ID Bearer Token" "0.00" "$entra_http"
+      printf "         → %s\n" "$entra_content"
+      PASSED=$((PASSED + 1))
+    else
+      printf "  FAIL | %-45s | %6ss | HTTP %s\n" "Auth — Entra ID Bearer Token" "0.00" "$entra_http"
+      printf "         ✗ %s\n" "$(echo "$entra_body" | jq -r '.error.message // empty' 2>/dev/null | cut -c1-120)"
+      FAILED=$((FAILED + 1))
+    fi
+
+    # Test: invalid Entra token (expect 401)
+    invalid_response=$(curl -sk -w "\n%{http_code}" "${BASE_URL}/v1/chat/completions" \
+      -H "Authorization: Bearer invalid-jwt-token" \
+      -H "Content-Type: application/json" \
+      -d "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}],\"max_tokens\":10}" 2>/dev/null)
+    invalid_http=$(echo "$invalid_response" | tail -1)
+
+    if [[ "$invalid_http" =~ ^(401|403)$ ]]; then
+      printf "  PASS | %-45s | %6ss | HTTP %s\n" "Auth — Invalid Bearer Token (expect 401)" "0.00" "$invalid_http"
+      PASSED=$((PASSED + 1))
+    else
+      printf "  FAIL | %-45s | %6ss | HTTP %s\n" "Auth — Invalid Bearer Token (expect 401)" "0.00" "$invalid_http"
+      FAILED=$((FAILED + 1))
+    fi
+
+    # Test: no auth header (expect 401)
+    noauth_response=$(curl -sk -w "\n%{http_code}" "${BASE_URL}/v1/chat/completions" \
+      -H "Content-Type: application/json" \
+      -d "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}],\"max_tokens\":10}" 2>/dev/null)
+    noauth_http=$(echo "$noauth_response" | tail -1)
+
+    if [[ "$noauth_http" =~ ^(401|403)$ ]]; then
+      printf "  PASS | %-45s | %6ss | HTTP %s\n" "Auth — No Auth Header (expect 401)" "0.00" "$noauth_http"
+      PASSED=$((PASSED + 1))
+    else
+      printf "  FAIL | %-45s | %6ss | HTTP %s\n" "Auth — No Auth Header (expect 401)" "0.00" "$noauth_http"
+      FAILED=$((FAILED + 1))
+    fi
+  else
+    printf "  SKIP | %-45s | Token acquisition failed\n" "Auth — Entra ID Tests (3 tests)"
+  fi
+else
+  printf "  SKIP | %-45s | ENTRA_APP_CLIENT_ID not set\n" "Auth — Entra ID Tests (3 tests)"
+fi
+
+# Test: Empty messages (expect 400/422)
 run_test "Error — Empty Messages (expect 400)" "/v1/chat/completions" "POST" \
   "{\"model\":\"$DEPLOY_NAME\",\"messages\":[],\"max_tokens\":10}" \
   "" "true"
 
-# Test 9: Streaming response
+# Test: Streaming response
 run_test "Streaming Response" "/v1/chat/completions" "POST" \
   "{\"model\":\"$DEPLOY_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"Count from 1 to 5\"}],\"max_tokens\":50,\"stream\":true}" \
   "data:"
 
-# Test 10: Model catalog check
+# Test: Model catalog check
 echo ""
 echo "--- Model Catalog ---"
 CATALOG_COUNT=$(kubectl get models -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)
