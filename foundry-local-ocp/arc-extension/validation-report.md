@@ -478,105 +478,105 @@ Without these two settings, the Foundry Local operator will fail to start with c
 
 ## 7. End-to-End Installation Flow
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         INSTALLATION SEQUENCE                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────────────┐     ┌──────────────────────────┐                  │
-│  │ 01-connect-arc.sh   │────▶│ 02-install-cert-manager  │                  │
-│  │                     │     │   cert-manager v1.19.2   │                  │
-│  │ • Register providers│     │   trust-manager v0.20.3  │                  │
-│  │ • Create RG         │     │   (Jetstack Helm charts) │                  │
-│  │ • az connectedk8s   │     └───────────┬──────────────┘                  │
-│  └─────────────────────┘                 │                                  │
-│                                          ▼                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ 03-prep-namespace-scc.sh                                             │  │
-│  │   1. Create namespace foundry-local-operator                         │  │
-│  │   2. Pre-create 6 ServiceAccounts with Helm ownership labels         │  │
-│  │   3. Bind each SA to privileged SCC via RoleBinding                  │  │
-│  └──────────────────────────────────┬────────────────────────────────────┘  │
-│                                     ▼                                       │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ 04-prep-storage.sh                                                   │  │
-│  │   1. Create local-storage StorageClass                               │  │
-│  │   2. Remove default annotation from managed-csi                      │  │
-│  │   3. Set local-storage as cluster default                            │  │
-│  │   4. SSH to node → mkdir -p /var/foundry-models                      │  │
-│  │   5. Create 100Gi PV with nodeAffinity                               │  │
-│  └──────────────────────────────────┬────────────────────────────────────┘  │
-│                                     ▼                                       │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ 05-install-extension.sh                                              │  │
-│  │   az k8s-extension create \                                          │  │
-│  │     --name foundrylocal \                                            │  │
-│  │     --extension-type microsoft.foundry \                             │  │
-│  │     --configuration-settings "global.telemetry.enabled=false" \      │  │
-│  │     --configuration-settings "entraAuth.tenantId=<tenant>" \         │  │
-│  │     --configuration-settings "entraAuth.clientId=<client-id>" \      │  │
-│  │     --no-wait                                                        │  │
-│  │                                                                      │  │
-│  │   ⏳ Poll provisioningState every 15s (timeout: 10 min)              │  │
-│  │   ⚡ Atomic: Any pod failure → full Helm rollback                    │  │
-│  └──────────────────────────────────┬────────────────────────────────────┘  │
-│                                     ▼                                       │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ 06-deploy-model.sh                                                   │  │
-│  │   1. Sanitize model name: qwen2.5-coder-0.5b → qwen2-5-coder-0-5b  │  │
-│  │   2. Apply ModelDeployment CR (foundrylocal.azure.com/v1)            │  │
-│  │   3. Wait for condition Available=True (timeout: 10 min)             │  │
-│  │   Model download: MCR → model-store (OCI) → inference pod            │  │
-│  └──────────────────────────────────┬────────────────────────────────────┘  │
-│                                     ▼                                       │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ 07-validate-inference.sh                                             │  │
-│  │   1. Extract API key from Secret (primary-key field, base64)         │  │
-│  │   2. kubectl port-forward svc/qwen2-5-coder-0-5b 5000:5000          │  │
-│  │   3. curl -sk https://localhost:5000/v1/chat/completions             │  │
-│  │      -H "api-key: $KEY" -d '{"model":"...","messages":[...]}'       │  │
-│  │   4. Validate: HTTP 200 + choices[0].message.content non-empty       │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
+```text
++=========================================================================+
+|                       INSTALLATION SEQUENCE                             |
++=========================================================================+
+|                                                                         |
+|  +-------------------+       +--------------------------+               |
+|  | 01-connect-arc.sh |------>| 02-install-cert-manager  |               |
+|  |                   |       |   cert-manager v1.19.2   |               |
+|  | * Register provs  |       |   trust-manager v0.20.3  |               |
+|  | * Create RG       |       |   (Jetstack Helm charts) |               |
+|  | * az connectedk8s |       +------------+-------------+               |
+|  +-------------------+                    |                             |
+|                                           v                             |
+|  +-------------------------------------------------------------------+  |
+|  | 03-prep-namespace-scc.sh                                          |  |
+|  |   1. Create namespace foundry-local-operator                      |  |
+|  |   2. Pre-create 6 ServiceAccounts with Helm ownership labels      |  |
+|  |   3. Bind each SA to privileged SCC via RoleBinding               |  |
+|  +--------------------------------+----------------------------------+  |
+|                                   v                                     |
+|  +-------------------------------------------------------------------+  |
+|  | 04-prep-storage.sh                                                |  |
+|  |   1. Create local-storage StorageClass                            |  |
+|  |   2. Remove default annotation from managed-csi                   |  |
+|  |   3. Set local-storage as cluster default                         |  |
+|  |   4. SSH to node -> mkdir -p /var/foundry-models                  |  |
+|  |   5. Create 100Gi PV with nodeAffinity                            |  |
+|  +--------------------------------+----------------------------------+  |
+|                                   v                                     |
+|  +-------------------------------------------------------------------+  |
+|  | 05-install-extension.sh                                           |  |
+|  |   az k8s-extension create \                                       |  |
+|  |     --name foundrylocal \                                         |  |
+|  |     --extension-type microsoft.foundry \                          |  |
+|  |     --config "global.telemetry.enabled=false" \                   |  |
+|  |     --config "entraAuth.tenantId=<tenant>" \                      |  |
+|  |     --config "entraAuth.clientId=<client-id>" \                   |  |
+|  |     --no-wait                                                     |  |
+|  |                                                                   |  |
+|  |   Poll provisioningState every 15s (timeout: 10 min)              |  |
+|  |   Atomic: Any pod failure -> full Helm rollback                   |  |
+|  +--------------------------------+----------------------------------+  |
+|                                   v                                     |
+|  +-------------------------------------------------------------------+  |
+|  | 06-deploy-model.sh                                                |  |
+|  |   1. Sanitize: qwen2.5-coder-0.5b -> qwen2-5-coder-0-5b           |  |
+|  |   2. Apply ModelDeployment CR (foundrylocal.azure.com/v1)         |  |
+|  |   3. Wait for Available=True (timeout: 10 min)                    |  |
+|  |   Model download: MCR -> model-store (OCI) -> inference pod       |  |
+|  +--------------------------------+----------------------------------+  |
+|                                   v                                     |
+|  +-------------------------------------------------------------------+  |
+|  | 07-validate-inference.sh                                          |  |
+|  |   1. Extract API key from Secret (primary-key, base64)            |  |
+|  |   2. kubectl port-forward svc/<model> 5000:5000                   |  |
+|  |   3. curl -sk https://localhost:5000/v1/chat/completions          |  |
+|  |      -H "api-key: $KEY" -d '{"model":"...","messages":[...]}'      |  |
+|  |   4. Validate: HTTP 200 + choices[0].message.content non-empty    |  |
+|  +-------------------------------------------------------------------+  |
++=========================================================================+
 ```
 
 ---
 
 ## 8. End-to-End Inference Flow
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      INFERENCE REQUEST FLOW                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  Client (curl/app)                                                          │
-│       │                                                                     │
-│       │ POST https://<svc>:5000/v1/chat/completions                        │
-│       │ Headers: api-key: <key>  OR  Authorization: Bearer <entra-token>   │
-│       │ Body: {"model":"qwen2-5-coder-0-5b","messages":[...],"max_tokens":N}│
-│       ▼                                                                     │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ Kubernetes Service: qwen2-5-coder-0-5b:5000                          │  │
-│  │ (ClusterIP, TLS termination at pod)                                  │  │
-│  └──────────────────────────────┬────────────────────────────────────────┘  │
-│                                 ▼                                            │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ Model Pod: qwen2-5-coder-0-5b-*                                      │  │
-│  │                                                                      │  │
-│  │  1. TLS handshake (self-signed cert from cert-manager)               │  │
-│  │  2. Auth validation:                                                 │  │
-│  │     • api-key header → compare vs Secret                             │  │
-│  │     • Bearer token → Entra ID JWT validation (tenant + audience)     │  │
-│  │  3. Tokenize prompt (model-specific tokenizer)                       │  │
-│  │  4. ONNX Runtime inference (CPU, AVX2/AVX512)                        │  │
-│  │  5. Stream/collect tokens                                            │  │
-│  │  6. Return OpenAI-compatible JSON response                           │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-│  Model weights source chain:                                                │
-│  MCR (mcr.microsoft.com) → model-store pod (OCI registry, PVC-backed)      │
-│                           → model pod (volume mount from model-store)       │
-└─────────────────────────────────────────────────────────────────────────────┘
+```text
++=========================================================================+
+|                       INFERENCE REQUEST FLOW                            |
++=========================================================================+
+|                                                                         |
+|  Client (curl/app)                                                      |
+|       |                                                                 |
+|       | POST https://<svc>:5000/v1/chat/completions                     |
+|       | Headers: api-key: <key> OR Authorization: Bearer <token>        |
+|       | Body: {"model":"qwen2-5-coder-0-5b","messages":[...]}           |
+|       v                                                                 |
+|  +-------------------------------------------------------------------+  |
+|  | Kubernetes Service: qwen2-5-coder-0-5b:5000                       |  |
+|  | (ClusterIP, TLS termination at pod)                               |  |
+|  +--------------------------------+----------------------------------+  |
+|                                   v                                     |
+|  +-------------------------------------------------------------------+  |
+|  | Model Pod: qwen2-5-coder-0-5b-*                                   |  |
+|  |                                                                   |  |
+|  |  1. TLS handshake (self-signed cert from cert-manager)            |  |
+|  |  2. Auth validation:                                              |  |
+|  |     - api-key header -> compare vs Secret                         |  |
+|  |     - Bearer token -> Entra ID JWT validation (tenant+audience)   |  |
+|  |  3. Tokenize prompt (model-specific tokenizer)                    |  |
+|  |  4. ONNX Runtime inference (CPU, AVX2/AVX512)                     |  |
+|  |  5. Stream/collect tokens                                         |  |
+|  |  6. Return OpenAI-compatible JSON response                        |  |
+|  +-------------------------------------------------------------------+  |
+|                                                                         |
+|  Model weights source chain:                                            |
+|  MCR (mcr.microsoft.com) -> model-store pod (OCI registry, PVC)         |
+|                           -> model pod (volume mount from store)        |
++=========================================================================+
 ```
 
 ---
