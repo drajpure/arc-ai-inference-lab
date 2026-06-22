@@ -161,7 +161,7 @@ curl -sk "https://localhost:5000/v1/chat/completions" \
 
 ---
 
-## 4. Key Divergences from AKS (D1–D10)
+## 4. Key Divergences from AKS (D1–D11)
 
 These are behaviors where Foundry Local on OCP diverges from the documented AKS experience. Each divergence has a severity (🔴 Blocking install, 🟡 Partial/Operational, ⚪ Cosmetic/Doc) and a workaround.
 
@@ -177,6 +177,7 @@ These are behaviors where Foundry Local on OCP diverges from the documented AKS 
 | D8 | Pre-created resources MUST have Helm ownership labels | 🔴 Arc-specific | Atomic install fails with "invalid ownership metadata" | Label SAs with `managed-by: Helm` + release annotations |
 | D9 | ModelDeployment name must be DNS-1035 (no dots, no uppercase) | 🟡 Doc gap | Kubernetes validation rejects names with `.` in them | Sanitize: `echo "$model" \| tr '.' '-' \| tr '[:upper:]' '[:lower:]'` |
 | D10 | `Microsoft.CertManagement` Arc extension broken on CRI-O | 🔴 Blocking | Deprecated seccomp annotations, hostPath mounts, nested OCI | Use upstream Jetstack cert-manager + trust-manager Helm charts |
+| D11 | `model-store` and model pods use `default` SA instead of dedicated SAs | 🟡 Security | Helm chart Deployments don't set `serviceAccountName` | Grant `privileged` SCC to `default` SA in namespace (not ideal — upstream fix needed) |
 
 ---
 
@@ -462,6 +463,33 @@ Without these two settings, the Foundry Local operator will fail to start with c
 
 ---
 
+### D11: Model-Store and Model Pods Use `default` ServiceAccount (🟡 Security)
+
+**Problem:** The Foundry Local Helm chart does not set `spec.serviceAccountName` on the `foundrylocal-model-store` Deployment or the dynamically-created model Deployments (e.g., `qwen2-5-coder-0-5b`). They default to the `default` SA:
+
+```
+$ kubectl get pods -n foundry-local-operator -o custom-columns="POD:.metadata.name,SA:.spec.serviceAccountName"
+POD                                                    SA
+foundrylocal-inference-operator-696964bd5c-t8jsk       foundrylocal-inference-operator    ✅
+foundrylocal-inference-operator-api-57f65d4685-295b2   foundrylocal-inference-operator-api ✅
+foundrylocal-model-store-f654f9c7d-9jj5q               default                            ⚠️
+qwen2-5-coder-0-5b-68f874ccc-lb7rw                     default                            ⚠️
+telemetry-collector-6f9fc58688-dw766                   foundrylocal-inference-operator    ✅
+```
+
+**Security concern:** On OCP, granting `privileged` SCC to the `default` SA means ANY pod in the namespace (including unintentional ones) would inherit elevated permissions. Best practice is to use dedicated SAs per workload.
+
+**Current workaround:** In `03-prep-namespace-scc.sh`, the `default` SA in the namespace is also bound to `privileged` SCC, which allows model-store and model pods to start. This is necessary but overly broad.
+
+**Recommendation to Foundry Local team:** The Helm chart should:
+1. Create dedicated SAs (e.g., `foundrylocal-model-store`, `foundrylocal-model-inference`)
+2. Set `spec.serviceAccountName` on the model-store Deployment
+3. Set `spec.serviceAccountName` on dynamically-created model Deployments (via the operator's pod template)
+
+**Impact:** This does not block functionality — pods work fine with `default` SA + privileged SCC. But it violates the principle of least privilege and would fail a security review for production workloads on multi-tenant OCP clusters.
+
+---
+
 ## 6. Workarounds Summary
 
 | # | What | Script | Lines of Code | Reversible? |
@@ -473,6 +501,7 @@ Without these two settings, the Foundry Local operator will fail to start with c
 | W5 | Clear PV `claimRef` if state = Released | `05-install-extension.sh` | 5 lines | Automatic |
 | W6 | DNS-1035 name sanitization (dots → hyphens) | `06-deploy-model.sh` | 1 line | N/A |
 | W7 | Upstream cert-manager + trust-manager (Jetstack) | `02-install-cert-manager.sh` | ~90 lines | Yes (helm uninstall) |
+| W8 | Bind `default` SA to `privileged` SCC (for model-store + model pods) | `03-prep-namespace-scc.sh` | ~5 lines | Yes (remove rolebinding) |
 
 ---
 
@@ -708,7 +737,7 @@ curl -sk "https://localhost:5000/v1/chat/completions" \
 
 ## 12. Conclusion
 
-**Foundry Local runs successfully on self-hosted OpenShift 4.21 via Azure Arc Extension** with 7 workarounds addressing 10 documented divergences from the AKS path.
+**Foundry Local runs successfully on self-hosted OpenShift 4.21 via Azure Arc Extension** with 8 workarounds addressing 11 documented divergences from the AKS path.
 
 **The fundamental architectural gap** is that Foundry Local assumes Kubernetes Pod Security Standards (PSS) — where security is enforced via namespace labels — while OpenShift uses SecurityContextConstraints (SCC), an admission controller that evaluates per-ServiceAccount. These are incompatible systems: PSS is "deny by default, relax via label"; SCC is "restricted by default, grant via rolebinding." The Foundry Helm chart's hardcoded `runAsUser: 1000` and `runAsUser: 0` violate both models.
 
