@@ -534,7 +534,7 @@ Without these two settings, the Foundry Local operator will fail to start with c
 |  |   1. Extract API key from Secret (primary-key, base64)            |  |
 |  |   2. kubectl port-forward svc/<model> 5000:5000                   |  |
 |  |   3. curl -sk https://localhost:5000/v1/chat/completions          |  |
-|  |      -H "api-key: $KEY" -d '{"model":"...","messages":[...]}'      |  |
+|  |      -H "api-key: $KEY" -d '{"model":"...","messages":[...]}'     |  |
 |  |   4. Validate: HTTP 200 + choices[0].message.content non-empty    |  |
 |  +-------------------------------------------------------------------+  |
 +=========================================================================+
