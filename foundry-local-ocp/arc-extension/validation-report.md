@@ -720,18 +720,19 @@ curl -sk "https://localhost:5000/v1/chat/completions" \
 
 ## 11. Recommendations to Foundry Team
 
-| # | Priority | Recommendation | Impact |
-|---|----------|---------------|--------|
-| 1 | 🔴 High | **Honor `modelStore.storageClassName` config** — template the value into the PVC spec | Unblocks non-default SC environments |
-| 2 | 🔴 High | **Drop root from msi-adapter** — use non-root UID + drop NET_ADMIN/NET_RAW capabilities | Allows `anyuid` SCC instead of `privileged` |
-| 3 | 🔴 High | **Document OpenShift deployment path** — zero official docs exist for OCP | Enables enterprise OCP customers |
-| 4 | 🔴 High | **Fix or document Microsoft.CertManagement on CRI-O** — or recommend Jetstack charts for OCP | Unblocks cert-manager prerequisite |
-| 5 | 🟡 Medium | **Document DNS-1035 naming constraint** for ModelDeployment metadata.name | Prevents user confusion with dots in model names |
-| 6 | 🟡 Medium | **Document `foundrylocal.azure.com/v1` CRD schema** with examples | Current docs/blogs reference deprecated API |
-| 7 | 🟡 Medium | **Fix telemetry flag** to suppress pod creation entirely when disabled | Eliminates 4 unnecessary pods + their SCC needs |
-| 8 | 🟡 Medium | **Graceful SCC handling** — detect OCP via API discovery and skip runAsUser if SCC present | Eliminates D1 entirely on OCP |
-| 9 | ⚪ Low | **OLM Operator packaging** for OperatorHub distribution | Native OCP install experience |
-| 10 | ⚪ Low | **Integration with OCP service-ca** operator | Eliminates external cert-manager dependency |
+| # | Maps to | Priority | Recommendation | Impact |
+|---|---------|----------|---------------|--------|
+| 1 | D1 | 🔴 High | **Drop root from msi-adapter** — use non-root UID + drop NET_ADMIN/NET_RAW capabilities | Allows `anyuid` SCC instead of `privileged`; graceful SCC handling via API discovery eliminates D1 entirely |
+| 2 | D2 | 🔴 High | **Honor `modelStore.storageClassName` config** — template the value into the PVC spec | Unblocks non-default SC environments without cluster-wide SC swap |
+| 3 | D3 | 🟡 Medium | **Validate storage provisioner health before PVC creation** — or document supported SC types | Prevents silent PVC pend on environments where default CSI is broken |
+| 4 | D4 | 🔴 High | **Tolerate pre-existing resources without Helm labels** — or adopt `--force` semantics in Arc agent | Eliminates need to pre-create SAs with exact Helm annotations before install |
+| 5 | D5 | 🔴 High | **Fix or document Microsoft.CertManagement on CRI-O** — or recommend Jetstack charts for OCP | Unblocks cert-manager prerequisite on non-containerd runtimes |
+| 6 | D6 | 🟡 Medium | **Set `serviceAccountName` on model-store and model Deployments** — use dedicated SAs | Eliminates need to grant `privileged` to `default` SA; passes security review |
+| 7 | D7 | 🟡 Medium | **Fix telemetry flag** to suppress pod creation entirely when disabled | Eliminates 4 unnecessary pods + their SCC requirements |
+| 8 | D8 | ⚪ Low | **Use `persistentVolumeReclaimPolicy: Delete`** or auto-clear stale claimRef on retry | Eliminates manual PV patch after install rollback |
+| 9 | D9–D11 | 🔴 High | **Document OpenShift deployment path** — extension type casing, CRD API version, DNS-1035 naming | Enables enterprise OCP customers without trial-and-error |
+| 10 | — | ⚪ Low | **OLM Operator packaging** for OperatorHub distribution | Native OCP install experience |
+| 11 | — | ⚪ Low | **Integration with OCP service-ca operator** | Eliminates external cert-manager dependency entirely |
 
 ---
 
